@@ -101,12 +101,13 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 			payload.RootPublicKey,
 			payload.WithdrawalPublicKey,
 			blockHeight,
+			tx.TxHash,
 		)
 		return err
 
 	case fairbatch.TxCreateSession:
 		payload := tx.Payload.(fairbatch.CreateSessionPayload)
-		_, err := p.AccountKeeper.CreateSession(payload.AccountId, payload.Opts, blockHeight)
+		_, err := p.AccountKeeper.CreateSession(payload.AccountId, payload.Opts, blockHeight, tx.TxHash)
 		return err
 
 	case fairbatch.TxDeposit:

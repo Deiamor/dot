@@ -116,3 +116,38 @@ func (n *LocalNode) NotifyOrderReceived(orderId, accountId, sessionId, marketId,
 		},
 	})
 }
+
+// GetOrderBook returns the current in-memory orderbook for a market.
+func (n *LocalNode) GetOrderBook(marketId string) (*clob.OrderBook, bool) {
+	return n.AppState.GetOrderBook(marketId)
+}
+
+// AllTrades returns all trades ever executed on this node.
+func (n *LocalNode) AllTrades() []settlement.TradeExecution {
+	return n.processor.SettlementKeeper.AllTrades()
+}
+
+// TradesForMarket returns all trades for a specific market.
+func (n *LocalNode) TradesForMarket(marketId string) []settlement.TradeExecution {
+	all := n.processor.SettlementKeeper.AllTrades()
+	var result []settlement.TradeExecution
+	for _, t := range all {
+		if t.MarketId == marketId {
+			result = append(result, t)
+		}
+	}
+	return result
+}
+
+// SubmitOrderImmediate builds a single-tx batch and processes it immediately.
+// Block height is auto-incremented. Returns the order status and any trades.
+func (n *LocalNode) SubmitOrderImmediate(o clob.Order) (BlockResult, error) {
+	nextHeight := n.AppState.CurrentHeight() + 1
+	batch := fairbatch.NewBatchBuilder(nextHeight).AddSubmitOrder(o).Build()
+	return n.SubmitBatch(batch)
+}
+
+// Publish exposes the EventBus for direct event emission (used by API layer).
+func (n *LocalNode) Publish(e state.Event) {
+	n.bus.Publish(e)
+}

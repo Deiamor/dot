@@ -23,13 +23,14 @@ type SessionOptions struct {
 	CanTransfer          bool
 }
 
-func NewTradingSession(accountId string, opts SessionOptions) TradingSession {
+// NewTradingSession creates a session with a deterministic ID derived from seed (the tx hash).
+func NewTradingSession(accountId string, opts SessionOptions, seed string) TradingSession {
 	markets := make(map[string]bool, len(opts.AllowedMarkets))
 	for _, m := range opts.AllowedMarkets {
 		markets[m] = true
 	}
 	return TradingSession{
-		SessionId:            newID("ses"),
+		SessionId:            seedID("ses", seed),
 		AccountId:            accountId,
 		SessionPublicKey:     opts.SessionPublicKey,
 		AllowedMarkets:       markets,

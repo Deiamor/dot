@@ -24,8 +24,8 @@ func NewAccountKeeper(store AccountStore, bus EventPublisher) *AccountKeeper {
 	return &AccountKeeper{store: store, bus: bus}
 }
 
-func (k *AccountKeeper) CreateAccount(ownerAddress, rootPublicKey, withdrawalPublicKey string, blockHeight int64) (NativeAccount, error) {
-	acc := NewNativeAccount(ownerAddress, rootPublicKey, withdrawalPublicKey)
+func (k *AccountKeeper) CreateAccount(ownerAddress, rootPublicKey, withdrawalPublicKey string, blockHeight int64, txHash string) (NativeAccount, error) {
+	acc := NewNativeAccount(ownerAddress, rootPublicKey, withdrawalPublicKey, txHash)
 	k.store.SetAccount(&acc)
 	k.bus.PublishAccountCreated(acc.AccountId, acc.OwnerAddress, blockHeight)
 	return acc, nil
@@ -39,12 +39,12 @@ func (k *AccountKeeper) GetAccount(id string) (NativeAccount, error) {
 	return *acc, nil
 }
 
-func (k *AccountKeeper) CreateSession(accountId string, opts SessionOptions, blockHeight int64) (TradingSession, error) {
+func (k *AccountKeeper) CreateSession(accountId string, opts SessionOptions, blockHeight int64, txHash string) (TradingSession, error) {
 	_, ok := k.store.GetAccount(accountId)
 	if !ok {
 		return TradingSession{}, fmt.Errorf("account not found: %s", accountId)
 	}
-	sess := NewTradingSession(accountId, opts)
+	sess := NewTradingSession(accountId, opts, txHash)
 	k.store.SetSession(&sess)
 	k.bus.PublishSessionCreated(sess.SessionId, sess.AccountId, blockHeight)
 	return sess, nil

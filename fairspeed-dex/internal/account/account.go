@@ -1,7 +1,7 @@
 package account
 
 import (
-	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 )
 
@@ -21,9 +21,11 @@ type NativeAccount struct {
 	Status              AccountStatus
 }
 
-func NewNativeAccount(ownerAddress, rootPublicKey, withdrawalPublicKey string) NativeAccount {
+// NewNativeAccount creates an account with a deterministic ID derived from seed
+// (the transaction hash). All nodes processing the same tx will produce the same ID.
+func NewNativeAccount(ownerAddress, rootPublicKey, withdrawalPublicKey, seed string) NativeAccount {
 	return NativeAccount{
-		AccountId:           newID("acc"),
+		AccountId:           seedID("acc", seed),
 		OwnerAddress:        ownerAddress,
 		RootPublicKey:       rootPublicKey,
 		WithdrawalPublicKey: withdrawalPublicKey,
@@ -32,8 +34,8 @@ func NewNativeAccount(ownerAddress, rootPublicKey, withdrawalPublicKey string) N
 	}
 }
 
-func newID(prefix string) string {
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	return fmt.Sprintf("%s-%x", prefix, b)
+// seedID produces a deterministic, prefix-tagged ID from an arbitrary seed string.
+func seedID(prefix, seed string) string {
+	h := sha256.Sum256([]byte(seed))
+	return fmt.Sprintf("%s-%x", prefix, h[:8])
 }
