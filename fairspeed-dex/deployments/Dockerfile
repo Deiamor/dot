@@ -4,18 +4,17 @@
 FROM golang:1.24-alpine AS builder
 WORKDIR /src
 
-# Cache dependencies first.
+# Copy vendored dependencies and source — no network access needed.
 COPY go.mod go.sum ./
-RUN go mod download
-
-# Build the binary.
+COPY vendor/ vendor/
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -trimpath -ldflags="-s -w" \
     -o /bin/localnode ./cmd/localnode
 
 # Stage 2 — minimal runtime image
+# The binary is statically compiled (CGO_ENABLED=0) so no apk packages
+# are needed; skipping apk avoids network access in air-gapped build envs.
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /bin/localnode /usr/local/bin/localnode
 
