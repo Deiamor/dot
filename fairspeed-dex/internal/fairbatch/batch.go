@@ -83,7 +83,8 @@ func computeTxHash(tx Transaction, blockHeight int64) string {
 		data += ":" + string(o.TimeInForce)
 		data += ":" + o.ClientOrderId
 		data += ":" + strconv.FormatUint(o.AccountSequence, 10)
-		data += ":" + o.Signature
+		// Signature intentionally excluded: TxHash is the message that gets signed,
+		// so including the signature would create a circular dependency.
 	case CancelOrderPayload:
 		data += ":" + p.OrderId + ":" + p.AccountId
 	}

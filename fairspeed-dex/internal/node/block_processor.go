@@ -146,6 +146,12 @@ func (p *LocalBlockProcessor) processOrder(o clob.Order, txHash string, blockHei
 		return fmt.Errorf("session validation: %w", err)
 	}
 
+	// Verify ed25519 signature: the order must be signed by the session key.
+	if err := account.VerifyOrderSignature(txHash, o.Signature, sess.SessionPublicKey); err != nil {
+		p.emitOrderRejected(o, "invalid signature: "+err.Error(), blockHeight)
+		return fmt.Errorf("signature: %w", err)
+	}
+
 	if err := p.RiskChecker.CheckOrder(&o, sess, blockHeight); err != nil {
 		p.emitOrderRejected(o, err.Error(), blockHeight)
 		return fmt.Errorf("risk check: %w", err)

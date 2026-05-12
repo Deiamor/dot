@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/byunghee1994/fairspeed-dex/internal/abci"
+	"github.com/byunghee1994/fairspeed-dex/internal/abciserver"
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/api"
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
@@ -36,6 +37,8 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP API listen address")
+	abciAddr := flag.String("abci-addr", "tcp://0.0.0.0:26658", "CometBFT ABCI listen address (empty = disabled)")
+	abciTransport := flag.String("abci-transport", "socket", "ABCI transport: socket or grpc")
 	chainId := flag.String("chain-id", "fairspeed-1", "chain identifier")
 	dataDir := flag.String("data-dir", "./data", "directory for WAL and snapshot files")
 	logEvents := flag.Bool("log-events", false, "log all chain events to stdout")
@@ -78,6 +81,16 @@ func main() {
 	if *bootstrap {
 		runDemo(n)
 		return
+	}
+
+	// Optionally start the CometBFT ABCI server (for validator nodes).
+	if *abciAddr != "" {
+		abciSrv, err := abciserver.StartServer(app, *abciAddr, abciserver.Transport(*abciTransport))
+		if err != nil {
+			log.Fatalf("start ABCI server: %v", err)
+		}
+		defer abciSrv.Stop() //nolint:errcheck
+		log.Printf("ABCI server listening on %s (%s)", *abciAddr, *abciTransport)
 	}
 
 	// Start the REST + SSE API server.
