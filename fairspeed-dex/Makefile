@@ -62,10 +62,21 @@ testnet-clean:
 docker-build:
 	docker build -t $(DOCKER_TAG) -f deployments/Dockerfile .
 
-# Requires: make testnet-init  (creates .testnet/ node directories on host)
-docker-up: testnet-init docker-build
+# Initialise .testnet/ dirs and generate deployments/.env with Docker peer addresses.
+docker-testnet-init: build
+	BINARY=$(BINARY) CHAIN_ID=$(CHAIN_ID) BASE_DIR=$(BASE_DIR) \
+	  ./scripts/testnet.sh init
+	BINARY=$(BINARY) BASE_DIR=$(BASE_DIR) \
+	  ./scripts/gen-docker-env.sh
+
+# Build image and start 4 containers. Requires: make docker-testnet-init
+docker-up: docker-build
 	docker compose -f deployments/docker-compose.yml up -d
-	@echo "Testnet running. API ports: 8080-8083"
+	@echo "Testnet running. API ports: 8080 8081 8082 8083"
+	@echo "Logs: docker compose -f deployments/docker-compose.yml logs -f"
 
 docker-down:
 	docker compose -f deployments/docker-compose.yml down
+
+docker-logs:
+	docker compose -f deployments/docker-compose.yml logs -f

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	cmtconfig "github.com/cometbft/cometbft/config"
 	cmted25519 "github.com/cometbft/cometbft/crypto/ed25519"
@@ -32,6 +33,18 @@ import (
 type Result struct {
 	Service cmtservice.Service
 	Node    *node.LocalNode
+}
+
+// RunConfig holds all parameters for RunNode.
+type RunConfig struct {
+	HomeDir   string
+	LogEvents bool
+	// Peers overrides persistent_peers in config.toml (e.g. Docker container names).
+	// Empty means use whatever is in config.toml.
+	Peers string
+	// P2PPort overrides the P2P listen port (0 = use config.toml value).
+	// Useful when all Docker containers should listen on the same internal port.
+	P2PPort int
 }
 
 // configFilePath returns the path to config.toml inside homeDir.
@@ -104,9 +117,30 @@ func NodeID(homeDir string) (string, error) {
 // RunNode starts an embedded CometBFT node with the DEX application.
 // It returns a Result containing both the CometBFT service and the live
 // DEX node so callers can share the same state instance for the REST API.
-func RunNode(ctx context.Context, homeDir string, logEvents bool) (Result, error) {
+func RunNode(ctx context.Context, rc RunConfig) (Result, error) {
 	cmtCfg := cmtconfig.DefaultConfig()
-	cmtCfg.SetRoot(homeDir)
+	cmtCfg.SetRoot(rc.HomeDir)
+
+	// Apply runtime overrides (useful for multi-node testnet and Docker).
+	if rc.Peers != "" {
+		cmtCfg.P2P.PersistentPeers = rc.Peers
+		// Give extra time for P2P connections to establish before the first
+		// consensus round. Without this, nodes that haven't yet received the
+		// proposal from the proposer will prevote nil and the chain stalls.
+		cmtCfg.Consensus.TimeoutPropose = 10 * time.Second
+		cmtCfg.Consensus.TimeoutProposeDelta = 500 * time.Millisecond
+		cmtCfg.Consensus.TimeoutPrevote = 5 * time.Second
+		cmtCfg.Consensus.TimeoutPrecommit = 5 * time.Second
+	}
+	if rc.P2PPort > 0 {
+		cmtCfg.P2P.ListenAddress = fmt.Sprintf("tcp://0.0.0.0:%d", rc.P2PPort)
+		// Derive a unique RPC port so multiple nodes on the same host don't clash.
+		// Convention: RPC = P2P + 10 (e.g. P2P 26656 → RPC 26666).
+		cmtCfg.RPC.ListenAddress = fmt.Sprintf("tcp://127.0.0.1:%d", rc.P2PPort+10)
+		// All nodes share 127.0.0.1 on a single host; without this CometBFT
+		// rejects every inbound connection after the first as "duplicate IP".
+		cmtCfg.P2P.AllowDuplicateIP = true
+	}
 
 	// Build the DEX node. Populate assets from genesis.json so the live
 	// node matches exactly what was declared at chain start.
@@ -132,7 +166,7 @@ func RunNode(ctx context.Context, homeDir string, logEvents bool) (Result, error
 	adapter := abciserver.NewCometBFTAdapter(dexApp)
 
 	var logger cmtlog.Logger
-	if logEvents {
+	if rc.LogEvents {
 		logger = cmtlog.NewTMLogger(cmtlog.NewSyncWriter(os.Stdout)).With("module", "fairspeed")
 	} else {
 		logger = cmtlog.NewNopLogger()

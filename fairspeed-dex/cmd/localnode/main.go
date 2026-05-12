@@ -76,12 +76,19 @@ func runStart(args []string) {
 	homeDir := fs.String("home", "./nodedata", "node home directory")
 	addr := fs.String("addr", ":8080", "HTTP API listen address")
 	logEvents := fs.Bool("log-events", false, "log all chain events to stdout")
+	peers := fs.String("peers", "", "comma-separated persistent_peers override (e.g. for Docker)")
+	p2pPort := fs.Int("p2p-port", 0, "P2P listen port override (0 = use config.toml)")
 	_ = fs.Parse(args)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	result, err := noderunner.RunNode(ctx, *homeDir, *logEvents)
+	result, err := noderunner.RunNode(ctx, noderunner.RunConfig{
+		HomeDir:   *homeDir,
+		LogEvents: *logEvents,
+		Peers:     *peers,
+		P2PPort:   *p2pPort,
+	})
 	if err != nil {
 		log.Fatalf("start node: %v", err)
 	}

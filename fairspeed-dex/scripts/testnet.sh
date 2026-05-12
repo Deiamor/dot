@@ -112,19 +112,42 @@ cmd_start() {
   echo "==> Starting $NUM_VALIDATORS nodes"
   mkdir -p "$BASE_DIR/logs"
 
+  # Collect node0's ID to use as the hub for hub-and-spoke topology.
+  # This avoids simultaneous-dial race conditions where ErrCurrentlyDialingOrExistingAddress
+  # causes CometBFT to abandon reconnection after the first failure.
+  hub_id=$("$BINARY" show-node-id -home "$BASE_DIR/node0")
+  hub_p2p_port=$((p2p_base + 0))
+  echo "  Hub node0 id=$hub_id port=$hub_p2p_port"
+
   for i in $(seq 0 $((NUM_VALIDATORS - 1))); do
     home="$BASE_DIR/node$i"
     api_port=$((api_base + i))
+    p2p_port=$((p2p_base + i))
     log="$BASE_DIR/logs/node$i.log"
+
+    # Hub-and-spoke: node0 has no explicit peers (accepts inbound from all).
+    # Nodes 1-N connect only to node0; PEX discovers the rest of the mesh.
+    if [[ "$i" == "0" ]]; then
+      peers=""
+    else
+      peers="${hub_id}@127.0.0.1:${hub_p2p_port}"
+    fi
 
     "$BINARY" start \
       -home       "$home" \
       -addr       ":${api_port}" \
+      -p2p-port   "$p2p_port" \
+      -peers      "$peers" \
       -log-events true \
       > "$log" 2>&1 &
     pid=$!
     echo "$pid" > "$BASE_DIR/node$i.pid"
     echo "  node$i started (pid=$pid api=:${api_port} log=$log)"
+
+    # Stagger startup: node0 (hub) must be fully listening before others connect.
+    if [[ "$i" == "0" ]]; then
+      sleep 3
+    fi
   done
 
   echo "==> All nodes started. Logs in $BASE_DIR/logs/"
