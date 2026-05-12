@@ -50,8 +50,12 @@ func SortAndHash(txs []Transaction, blockHeight int64) (sorted []Transaction, ba
 	return hashed, batchHash
 }
 
-// computeTxHash produces a deterministic hash from the non-random fields of a transaction.
-// Random order IDs are excluded; only the semantic content is hashed.
+// ComputeTxHash produces a deterministic hash from the semantic fields of a transaction.
+// Random order IDs are excluded. All nodes computing the same tx arrive at the same hash.
+func ComputeTxHash(tx Transaction, blockHeight int64) string {
+	return computeTxHash(tx, blockHeight)
+}
+
 func computeTxHash(tx Transaction, blockHeight int64) string {
 	var data string
 	data += strconv.Itoa(int(tx.TxType))
@@ -87,6 +91,12 @@ func computeTxHash(tx Transaction, blockHeight int64) string {
 	data += ":" + strconv.FormatInt(blockHeight, 10)
 	sum := sha256.Sum256([]byte(data))
 	return fmt.Sprintf("%x", sum)
+}
+
+// ComputeBatchHash computes the BatchHash from an ordered slice of Transactions.
+// The input order is preserved — callers are responsible for sorting first if needed.
+func ComputeBatchHash(txs []Transaction, blockHeight int64) string {
+	return computeBatchHash(txs, blockHeight)
 }
 
 func computeBatchHash(sorted []Transaction, blockHeight int64) string {
