@@ -39,6 +39,13 @@ func (p *LocalBlockProcessor) ProcessBlock(block LocalBlock) (BlockResult, error
 		allEvents = append(allEvents, e)
 	})
 
+	// Emit OrderIncluded for every order transaction in the batch.
+	for _, tx := range block.Batch.Transactions {
+		if tx.TxType == fairbatch.TxSubmitOrder {
+			p.emitOrderIncluded(tx, block.Height)
+		}
+	}
+
 	txCount := 0
 	for _, tx := range block.Batch.Transactions {
 		if err := p.processTx(tx, block.Height); err != nil {
@@ -47,9 +54,7 @@ func (p *LocalBlockProcessor) ProcessBlock(block LocalBlock) (BlockResult, error
 		txCount++
 	}
 
-	// Collect trades recorded this block
 	allTrades = p.SettlementKeeper.TradesForBlock(block.Height)
-
 	p.AppState.IncrementBlock()
 
 	p.EventBus.Publish(state.Event{
@@ -69,6 +74,22 @@ func (p *LocalBlockProcessor) ProcessBlock(block LocalBlock) (BlockResult, error
 		Trades:     allTrades,
 		Events:     allEvents,
 	}, nil
+}
+
+func (p *LocalBlockProcessor) emitOrderIncluded(tx fairbatch.Transaction, blockHeight int64) {
+	payload := tx.Payload.(fairbatch.SubmitOrderPayload)
+	o := payload.Order
+	p.EventBus.Publish(state.Event{
+		Type:        state.EventOrderIncluded,
+		BlockHeight: blockHeight,
+		Payload: state.OrderIncludedPayload{
+			OrderId:     o.OrderId,
+			AccountId:   o.AccountId,
+			MarketId:    o.MarketId,
+			BlockHeight: blockHeight,
+			TxHash:      tx.TxHash,
+		},
+	})
 }
 
 func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight int64) error {
@@ -106,7 +127,7 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 
 	case fairbatch.TxSubmitOrder:
 		payload := tx.Payload.(fairbatch.SubmitOrderPayload)
-		return p.processOrder(payload.Order, blockHeight)
+		return p.processOrder(payload.Order, tx.TxHash, blockHeight)
 
 	case fairbatch.TxCancelOrder:
 		payload := tx.Payload.(fairbatch.CancelOrderPayload)
@@ -117,18 +138,20 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 	}
 }
 
-func (p *LocalBlockProcessor) processOrder(o clob.Order, blockHeight int64) error {
+func (p *LocalBlockProcessor) processOrder(o clob.Order, txHash string, blockHeight int64) error {
 	sess, err := p.AccountKeeper.ValidateSession(o.SessionId, o.MarketId, blockHeight)
 	if err != nil {
+		p.emitOrderRejected(o, err.Error(), blockHeight)
 		return fmt.Errorf("session validation: %w", err)
 	}
 
 	if err := p.RiskChecker.CheckOrder(&o, sess, blockHeight); err != nil {
+		p.emitOrderRejected(o, err.Error(), blockHeight)
 		return fmt.Errorf("risk check: %w", err)
 	}
 
-	// Reserve collateral upfront for the full order.
 	if err := p.OrderBookKeeper.ReserveForOrder(o); err != nil {
+		p.emitOrderRejected(o, err.Error(), blockHeight)
 		return fmt.Errorf("reserving collateral: %w", err)
 	}
 
@@ -145,43 +168,52 @@ func (p *LocalBlockProcessor) processOrder(o clob.Order, blockHeight int64) erro
 		}
 	}
 
-	// If there's remaining quantity and order is GTC, add to book.
 	if o.RemainingQuantity > 0 && o.TimeInForce == clob.TimeInForceGtc && o.Status != clob.OrderStatusRejected {
 		p.AppState.SetOrder(&o)
 		ob.AddOrder(p.getOrStoreOrder(&o))
 		p.AppState.SetOrderBook(ob)
-		p.EventBus.Publish(state.Event{
-			Type:        state.EventOrderSubmitted,
-			BlockHeight: blockHeight,
-			Payload: state.OrderSubmittedPayload{
-				OrderId:   o.OrderId,
-				AccountId: o.AccountId,
-				MarketId:  o.MarketId,
-				Status:    string(o.Status),
-			},
-		})
+		p.emitOrderSubmitted(o, blockHeight)
 	} else {
-		// Release the remaining reserved collateral if not going into the book.
 		if o.RemainingQuantity > 0 && o.Status != clob.OrderStatusRejected {
 			_ = p.OrderBookKeeper.ReleaseForOrder(o, o.RemainingQuantity)
 		} else if o.Status == clob.OrderStatusRejected {
-			// FOK rejected: release all reserved collateral.
 			_ = p.OrderBookKeeper.ReleaseForOrder(o, o.Quantity)
 		}
 		p.AppState.SetOrder(&o)
-		p.EventBus.Publish(state.Event{
-			Type:        state.EventOrderSubmitted,
-			BlockHeight: blockHeight,
-			Payload: state.OrderSubmittedPayload{
-				OrderId:   o.OrderId,
-				AccountId: o.AccountId,
-				MarketId:  o.MarketId,
-				Status:    string(o.Status),
-			},
-		})
+		if o.Status == clob.OrderStatusRejected {
+			p.emitOrderRejected(o, "FOK not fillable", blockHeight)
+		} else {
+			p.emitOrderSubmitted(o, blockHeight)
+		}
 	}
 
 	return nil
+}
+
+func (p *LocalBlockProcessor) emitOrderSubmitted(o clob.Order, blockHeight int64) {
+	p.EventBus.Publish(state.Event{
+		Type:        state.EventOrderSubmitted,
+		BlockHeight: blockHeight,
+		Payload: state.OrderSubmittedPayload{
+			OrderId:   o.OrderId,
+			AccountId: o.AccountId,
+			MarketId:  o.MarketId,
+			Status:    string(o.Status),
+		},
+	})
+}
+
+func (p *LocalBlockProcessor) emitOrderRejected(o clob.Order, reason string, blockHeight int64) {
+	p.EventBus.Publish(state.Event{
+		Type:        state.EventOrderRejected,
+		BlockHeight: blockHeight,
+		Payload: state.OrderRejectedPayload{
+			OrderId:   o.OrderId,
+			AccountId: o.AccountId,
+			MarketId:  o.MarketId,
+			Reason:    reason,
+		},
+	})
 }
 
 func (p *LocalBlockProcessor) getOrStoreOrder(o *clob.Order) *clob.Order {

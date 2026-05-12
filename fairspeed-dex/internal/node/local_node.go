@@ -97,3 +97,22 @@ func (n *LocalNode) GetBalance(accountId, assetId string) asset.Balance {
 func (n *LocalNode) GetTreasury(assetId string) asset.Balance {
 	return n.AssetKeeper.GetBalance(fee.TreasuryAccountId, assetId)
 }
+
+// NotifyOrderReceived emits EventOrderReceived before the order enters a batch.
+// Callers (API layer, tests) should call this when an order arrives externally.
+func (n *LocalNode) NotifyOrderReceived(orderId, accountId, sessionId, marketId, side, txHash string, price, qty int64) {
+	n.bus.Publish(state.Event{
+		Type:        state.EventOrderReceived,
+		BlockHeight: n.AppState.CurrentHeight(),
+		Payload: state.OrderReceivedPayload{
+			OrderId:   orderId,
+			AccountId: accountId,
+			SessionId: sessionId,
+			MarketId:  marketId,
+			Side:      side,
+			Price:     price,
+			Quantity:  qty,
+			TxHash:    txHash,
+		},
+	})
+}

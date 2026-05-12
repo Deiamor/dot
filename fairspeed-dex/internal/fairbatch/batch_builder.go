@@ -92,10 +92,12 @@ func (b *BatchBuilder) AddCancelOrder(orderId, accountId string) *BatchBuilder {
 }
 
 func (b *BatchBuilder) Build() FairBatch {
+	sorted, batchHash := SortAndHash(b.txs, b.blockHeight)
 	return FairBatch{
 		BatchId:      newBatchID(),
 		BlockHeight:  b.blockHeight,
-		Transactions: b.txs,
+		Transactions: sorted,
+		BatchHash:    batchHash,
 		Timestamp:    time.Now().UnixNano(),
 	}
 }

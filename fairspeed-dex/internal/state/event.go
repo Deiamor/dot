@@ -6,13 +6,18 @@ const (
 	EventAccountCreated   EventType = "ACCOUNT_CREATED"
 	EventSessionCreated   EventType = "SESSION_CREATED"
 	EventDepositSimulated EventType = "DEPOSIT_SIMULATED"
-	EventOrderSubmitted   EventType = "ORDER_SUBMITTED"
-	EventOrderCancelled   EventType = "ORDER_CANCELLED"
-	EventOrderExpired     EventType = "ORDER_EXPIRED"
-	EventTradeExecuted    EventType = "TRADE_EXECUTED"
-	EventBalanceUpdated   EventType = "BALANCE_UPDATED"
-	EventFeeCharged       EventType = "FEE_CHARGED"
-	EventBlockProcessed   EventType = "BLOCK_PROCESSED"
+
+	// Order lifecycle events (in order of occurrence)
+	EventOrderReceived  EventType = "ORDER_RECEIVED"  // order arrived at the node (pre-block)
+	EventOrderIncluded  EventType = "ORDER_INCLUDED"  // order included in a block batch
+	EventOrderSubmitted EventType = "ORDER_SUBMITTED" // order processed by block (resting or immediate)
+	EventOrderRejected  EventType = "ORDER_REJECTED"  // order rejected (risk, session, or FOK)
+	EventOrderCancelled EventType = "ORDER_CANCELLED"
+	EventOrderExpired   EventType = "ORDER_EXPIRED"
+	EventTradeExecuted  EventType = "TRADE_EXECUTED"
+	EventBalanceUpdated EventType = "BALANCE_UPDATED"
+	EventFeeCharged     EventType = "FEE_CHARGED"
+	EventBlockProcessed EventType = "BLOCK_PROCESSED"
 
 	EventAll EventType = "*"
 )
@@ -37,6 +42,32 @@ type DepositSimulatedPayload struct {
 	AccountId string
 	AssetId   string
 	Amount    int64
+}
+
+type OrderReceivedPayload struct {
+	OrderId   string
+	AccountId string
+	SessionId string
+	MarketId  string
+	Side      string
+	Price     int64
+	Quantity  int64
+	TxHash    string
+}
+
+type OrderIncludedPayload struct {
+	OrderId     string
+	AccountId   string
+	MarketId    string
+	BlockHeight int64
+	TxHash      string
+}
+
+type OrderRejectedPayload struct {
+	OrderId   string
+	AccountId string
+	MarketId  string
+	Reason    string
 }
 
 type OrderSubmittedPayload struct {
