@@ -69,28 +69,19 @@ cmd_init() {
     echo "           Install jq and re-run 'init' for a proper multi-validator setup."
   fi
 
-  # Build persistent_peers string: collect node IDs and assign p2p ports.
-  echo "==> Configuring persistent_peers"
+  # Build persistent_peers string using the built-in show-node-id subcommand.
+  echo "==> Collecting node IDs"
   peers=""
   for i in $(seq 0 $((NUM_VALIDATORS - 1))); do
     home="$BASE_DIR/node$i"
     port=$((p2p_base + i))
-    node_id=$("$BINARY" tendermint show-node-id --home "$home" 2>/dev/null || true)
-    if [[ -z "$node_id" ]]; then
-      # Fallback: parse node_key.json directly.
-      key_file="$home/config/node_key.json"
-      if [[ -f "$key_file" ]]; then
-        node_id=$(python3 -c "
-import json, hashlib, base64, binascii
-d = json.load(open('$key_file'))
-raw = base64.b64decode(d['priv_key']['value'])[-32:]
-import sys; sys.stdout.write(binascii.hexlify(raw[:20]).decode())
-" 2>/dev/null || echo "unknown")
-      fi
-    fi
-    if [[ -n "$node_id" && "$node_id" != "unknown" ]]; then
+    node_id=$("$BINARY" show-node-id -home "$home" 2>/dev/null || true)
+    if [[ -n "$node_id" ]]; then
       peer="${node_id}@127.0.0.1:${port}"
       peers="${peers:+$peers,}$peer"
+      echo "  node$i id=$node_id"
+    else
+      echo "  WARNING: could not determine node ID for node$i"
     fi
   done
 

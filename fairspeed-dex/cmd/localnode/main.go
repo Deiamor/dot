@@ -6,9 +6,10 @@
 //
 // Subcommands:
 //
-//	init    Initialise a new node home directory (keys + genesis + config.toml)
-//	start   Start the node (embedded CometBFT + REST API)
-//	demo    Run a built-in Alice/Bob demonstration and exit
+//	init          Initialise a new node home directory (keys + genesis + config.toml)
+//	start         Start the node (embedded CometBFT + REST API)
+//	show-node-id  Print the P2P node ID for a home directory
+//	demo          Run a built-in Alice/Bob demonstration and exit
 package main
 
 import (
@@ -36,7 +37,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: localnode <init|start|demo> [flags]\n")
+		fmt.Fprintf(os.Stderr, "Usage: localnode <init|start|show-node-id|demo> [flags]\n")
 		os.Exit(1)
 	}
 
@@ -45,10 +46,12 @@ func main() {
 		runInit(os.Args[2:])
 	case "start":
 		runStart(os.Args[2:])
+	case "show-node-id":
+		runShowNodeID(os.Args[2:])
 	case "demo":
 		runDemoCmd(os.Args[2:])
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown subcommand %q. Use init, start, or demo.\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "Unknown subcommand %q. Use init, start, show-node-id, or demo.\n", os.Args[1])
 		os.Exit(1)
 	}
 }
@@ -67,6 +70,7 @@ func runInit(args []string) {
 }
 
 // runStart starts the embedded CometBFT node with REST API.
+// Both CometBFT and the REST API share the same *node.LocalNode instance.
 func runStart(args []string) {
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
 	homeDir := fs.String("home", "./nodedata", "node home directory")
@@ -77,18 +81,14 @@ func runStart(args []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	svc, err := noderunner.RunNode(ctx, *homeDir, *logEvents)
+	result, err := noderunner.RunNode(ctx, *homeDir, *logEvents)
 	if err != nil {
 		log.Fatalf("start node: %v", err)
 	}
+	log.Printf("CometBFT node started, home=%s", *homeDir)
 
-	// Retrieve the node that was built inside RunNode for the REST API.
-	// For the embedded mode we build a separate API-only node handle.
-	n := node.NewLocalNode()
-	n.RegisterAsset(asset.BTC)
-	n.RegisterAsset(asset.USDC)
-
-	srv := api.NewServer(n, *addr)
+	// Use the same DEX node instance for the REST API.
+	srv := api.NewServer(result.Node, *addr)
 	go func() {
 		log.Printf("API server listening on %s", *addr)
 		if err := srv.Start(); err != nil {
@@ -102,7 +102,7 @@ func runStart(args []string) {
 	log.Printf("Received %s — shutting down…", sig)
 
 	cancel()
-	svc.Stop() //nolint:errcheck
+	result.Service.Stop() //nolint:errcheck
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stopCancel()
@@ -111,7 +111,20 @@ func runStart(args []string) {
 	}
 }
 
-// runDemoCmd runs the Alice/Bob demo (legacy standalone mode).
+// runShowNodeID prints the P2P node ID derived from node_key.json.
+func runShowNodeID(args []string) {
+	fs := flag.NewFlagSet("show-node-id", flag.ExitOnError)
+	homeDir := fs.String("home", "./nodedata", "node home directory")
+	_ = fs.Parse(args)
+
+	id, err := noderunner.NodeID(*homeDir)
+	if err != nil {
+		log.Fatalf("show-node-id: %v", err)
+	}
+	fmt.Println(id)
+}
+
+// runDemoCmd runs the Alice/Bob demo (standalone in-memory mode).
 func runDemoCmd(args []string) {
 	fs := flag.NewFlagSet("demo", flag.ExitOnError)
 	addr := fs.String("addr", ":8080", "HTTP API listen address")
