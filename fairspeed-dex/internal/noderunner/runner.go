@@ -141,7 +141,7 @@ func RunNode(ctx context.Context, rc RunConfig) (Result, error) {
 		cmtCfg.P2P.ListenAddress = fmt.Sprintf("tcp://0.0.0.0:%d", rc.P2PPort)
 		// Derive a unique RPC port so multiple nodes on the same host don't clash.
 		// Convention: RPC = P2P + 10 (e.g. P2P 26656 → RPC 26666).
-		cmtCfg.RPC.ListenAddress = fmt.Sprintf("tcp://127.0.0.1:%d", rc.P2PPort+10)
+		cmtCfg.RPC.ListenAddress = fmt.Sprintf("tcp://0.0.0.0:%d", rc.P2PPort+10)
 		// All nodes share 127.0.0.1 on a single host; without this CometBFT
 		// rejects every inbound connection after the first as "duplicate IP".
 		cmtCfg.P2P.AllowDuplicateIP = true
