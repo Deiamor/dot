@@ -1,0 +1,70 @@
+# 4-validator fairspeed-dex testnet.
+#
+# Usage:
+#   # First initialise node directories on the host:
+#   make testnet-init
+#
+#   # Then start all containers:
+#   docker compose -f deployments/docker-compose.yml up
+#
+# Each validator shares the host-mounted .testnet/ directories so keys and
+# genesis files created by `make testnet-init` are visible inside containers.
+version: "3.9"
+
+x-node-defaults: &node-defaults
+  image: fairspeed-dex:latest
+  build:
+    context: ..
+    dockerfile: deployments/Dockerfile
+  restart: unless-stopped
+  networks:
+    - fairspeed
+
+services:
+  node0:
+    <<: *node-defaults
+    container_name: fairspeed-node0
+    volumes:
+      - ../.testnet/node0:/data
+    ports:
+      - "8080:8080"    # REST API
+      - "26656:26656"  # P2P
+      - "26657:26657"  # RPC
+    command: ["start", "-home", "/data", "-addr", ":8080", "-log-events", "true"]
+
+  node1:
+    <<: *node-defaults
+    container_name: fairspeed-node1
+    volumes:
+      - ../.testnet/node1:/data
+    ports:
+      - "8081:8080"    # REST API
+      - "26666:26666"  # P2P
+      - "26667:26667"  # RPC
+    command: ["start", "-home", "/data", "-addr", ":8080", "-log-events", "true"]
+
+  node2:
+    <<: *node-defaults
+    container_name: fairspeed-node2
+    volumes:
+      - ../.testnet/node2:/data
+    ports:
+      - "8082:8080"    # REST API
+      - "26676:26676"  # P2P
+      - "26677:26677"  # RPC
+    command: ["start", "-home", "/data", "-addr", ":8080", "-log-events", "true"]
+
+  node3:
+    <<: *node-defaults
+    container_name: fairspeed-node3
+    volumes:
+      - ../.testnet/node3:/data
+    ports:
+      - "8083:8080"    # REST API
+      - "26686:26686"  # P2P
+      - "26687:26687"  # RPC
+    command: ["start", "-home", "/data", "-addr", ":8080", "-log-events", "true"]
+
+networks:
+  fairspeed:
+    driver: bridge

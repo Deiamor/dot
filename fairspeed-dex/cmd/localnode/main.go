@@ -1,16 +1,14 @@
-// Command localnode starts a single-node fairspeed-dex instance.
+// Command localnode manages a single-node or multi-node fairspeed-dex instance.
 //
 // Usage:
 //
-//	localnode [flags]
+//	localnode <subcommand> [flags]
 //
-// Flags:
+// Subcommands:
 //
-//	-addr       HTTP API listen address (default ":8080")
-//	-chain-id   Chain identifier for ABCI InitChain (default "fairspeed-1")
-//	-data-dir   Directory for WAL + snapshot files (default "./data")
-//	-log-events Whether to log every chain event to stdout (default false)
-//	-bootstrap  Run a built-in Alice/Bob demo then exit (default false)
+//	init    Initialise a new node home directory (keys + genesis + config.toml)
+//	start   Start the node (embedded CometBFT + REST API)
+//	demo    Run a built-in Alice/Bob demonstration and exit
 package main
 
 import (
@@ -31,26 +29,104 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
 	"github.com/byunghee1994/fairspeed-dex/internal/node"
+	"github.com/byunghee1994/fairspeed-dex/internal/noderunner"
 	"github.com/byunghee1994/fairspeed-dex/internal/state"
 	"github.com/byunghee1994/fairspeed-dex/internal/store"
 )
 
 func main() {
-	addr := flag.String("addr", ":8080", "HTTP API listen address")
-	abciAddr := flag.String("abci-addr", "tcp://0.0.0.0:26658", "CometBFT ABCI listen address (empty = disabled)")
-	abciTransport := flag.String("abci-transport", "socket", "ABCI transport: socket or grpc")
-	chainId := flag.String("chain-id", "fairspeed-1", "chain identifier")
-	dataDir := flag.String("data-dir", "./data", "directory for WAL and snapshot files")
-	logEvents := flag.Bool("log-events", false, "log all chain events to stdout")
-	bootstrap := flag.Bool("bootstrap", false, "run Alice/Bob demo blocks then exit")
-	flag.Parse()
+	if len(os.Args) < 2 {
+		fmt.Fprintf(os.Stderr, "Usage: localnode <init|start|demo> [flags]\n")
+		os.Exit(1)
+	}
 
-	// Ensure data directory exists.
+	switch os.Args[1] {
+	case "init":
+		runInit(os.Args[2:])
+	case "start":
+		runStart(os.Args[2:])
+	case "demo":
+		runDemoCmd(os.Args[2:])
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown subcommand %q. Use init, start, or demo.\n", os.Args[1])
+		os.Exit(1)
+	}
+}
+
+// runInit initialises the node home directory (keys, genesis, config.toml).
+func runInit(args []string) {
+	fs := flag.NewFlagSet("init", flag.ExitOnError)
+	homeDir := fs.String("home", "./nodedata", "node home directory")
+	chainId := fs.String("chain-id", "fairspeed-1", "chain identifier")
+	moniker := fs.String("moniker", "fairspeed-node", "node moniker")
+	_ = fs.Parse(args)
+
+	if err := noderunner.InitNode(*homeDir, *chainId, *moniker); err != nil {
+		log.Fatalf("init: %v", err)
+	}
+}
+
+// runStart starts the embedded CometBFT node with REST API.
+func runStart(args []string) {
+	fs := flag.NewFlagSet("start", flag.ExitOnError)
+	homeDir := fs.String("home", "./nodedata", "node home directory")
+	addr := fs.String("addr", ":8080", "HTTP API listen address")
+	logEvents := fs.Bool("log-events", false, "log all chain events to stdout")
+	_ = fs.Parse(args)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	svc, err := noderunner.RunNode(ctx, *homeDir, *logEvents)
+	if err != nil {
+		log.Fatalf("start node: %v", err)
+	}
+
+	// Retrieve the node that was built inside RunNode for the REST API.
+	// For the embedded mode we build a separate API-only node handle.
+	n := node.NewLocalNode()
+	n.RegisterAsset(asset.BTC)
+	n.RegisterAsset(asset.USDC)
+
+	srv := api.NewServer(n, *addr)
+	go func() {
+		log.Printf("API server listening on %s", *addr)
+		if err := srv.Start(); err != nil {
+			log.Printf("API server stopped: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-quit
+	log.Printf("Received %s — shutting down…", sig)
+
+	cancel()
+	svc.Stop() //nolint:errcheck
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if err := srv.Stop(stopCtx); err != nil {
+		log.Printf("API graceful shutdown: %v", err)
+	}
+}
+
+// runDemoCmd runs the Alice/Bob demo (legacy standalone mode).
+func runDemoCmd(args []string) {
+	fs := flag.NewFlagSet("demo", flag.ExitOnError)
+	addr := fs.String("addr", ":8080", "HTTP API listen address")
+	abciAddr := fs.String("abci-addr", "tcp://0.0.0.0:26658", "CometBFT ABCI listen address (empty = disabled)")
+	abciTransport := fs.String("abci-transport", "socket", "ABCI transport: socket or grpc")
+	chainId := fs.String("chain-id", "fairspeed-1", "chain identifier")
+	dataDir := fs.String("data-dir", "./data", "directory for WAL and snapshot files")
+	logEvents := fs.Bool("log-events", false, "log all chain events to stdout")
+	bootstrap := fs.Bool("bootstrap", false, "run Alice/Bob demo blocks then exit")
+	_ = fs.Parse(args)
+
 	if err := os.MkdirAll(*dataDir, 0755); err != nil {
 		log.Fatalf("create data dir: %v", err)
 	}
 
-	// Open persistent store (WAL + snapshot).
 	prefix := *dataDir + "/appstate"
 	ps, err := store.Open(prefix, 100)
 	if err != nil {
@@ -59,7 +135,6 @@ func main() {
 	defer ps.Close()
 	log.Printf("Persistent store opened at %s (height=%d)", prefix, ps.Height())
 
-	// Build the local node.
 	n := node.NewLocalNode()
 	n.RegisterAsset(asset.BTC)
 	n.RegisterAsset(asset.USDC)
@@ -70,7 +145,6 @@ func main() {
 		})
 	}
 
-	// Wire ABCI application.
 	app := abci.NewDEXApplication(n)
 	initResp := app.InitChain(abci.RequestInitChain{
 		ChainId:       *chainId,
@@ -83,7 +157,6 @@ func main() {
 		return
 	}
 
-	// Optionally start the CometBFT ABCI server (for validator nodes).
 	if *abciAddr != "" {
 		abciSrv, err := abciserver.StartServer(app, *abciAddr, abciserver.Transport(*abciTransport))
 		if err != nil {
@@ -93,7 +166,6 @@ func main() {
 		log.Printf("ABCI server listening on %s (%s)", *abciAddr, *abciTransport)
 	}
 
-	// Start the REST + SSE API server.
 	srv := api.NewServer(n, *addr)
 	go func() {
 		log.Printf("API server listening on %s", *addr)
@@ -102,7 +174,6 @@ func main() {
 		}
 	}()
 
-	// Block until SIGINT / SIGTERM.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
@@ -116,12 +187,9 @@ func main() {
 	log.Printf("Node stopped at height %d", n.CurrentHeight())
 }
 
-// runDemo executes a hardcoded Alice/Bob scenario and prints the results.
-// Invoked when -bootstrap flag is set.
 func runDemo(n *node.LocalNode) {
 	log.Println("Running Alice/Bob demo…")
 
-	// Block 1: accounts.
 	_, err := n.SubmitBatch(fairbatch.NewBatchBuilder(1).
 		AddCreateAccount("alice@example.com", "alice-root", "alice-withdraw").
 		AddCreateAccount("bob@example.com", "bob-root", "bob-withdraw").
@@ -138,7 +206,6 @@ func runDemo(n *node.LocalNode) {
 		}
 	}
 
-	// Block 2: sessions.
 	opts := account.SessionOptions{AllowedMarkets: []string{"BTC-USDC"}, MaxOrderAmount: 1000}
 	_, err = n.SubmitBatch(fairbatch.NewBatchBuilder(2).
 		AddCreateSession(aliceId, opts).
@@ -156,19 +223,16 @@ func runDemo(n *node.LocalNode) {
 		}
 	}
 
-	// Block 3: deposits.
 	_, err = n.SubmitBatch(fairbatch.NewBatchBuilder(3).
 		AddDeposit(aliceId, "USDC", 100_000).
 		AddDeposit(bobId, "BTC", 100).
 		Build())
 	must(err, "block 3")
 
-	// Block 4: Bob SELL.
 	sell := clob.NewLimitOrder(bobId, bobSess, "BTC-USDC", clob.OrderSideSell, 10_000, 1, clob.TimeInForceGtc, 4)
 	_, err = n.SubmitBatch(fairbatch.NewBatchBuilder(4).AddSubmitOrder(sell).Build())
 	must(err, "block 4")
 
-	// Block 5: Alice BUY → trade.
 	buy := clob.NewLimitOrder(aliceId, aliceSess, "BTC-USDC", clob.OrderSideBuy, 10_000, 1, clob.TimeInForceGtc, 5)
 	result, err := n.SubmitBatch(fairbatch.NewBatchBuilder(5).AddSubmitOrder(buy).Build())
 	must(err, "block 5")
