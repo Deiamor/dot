@@ -19,6 +19,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
 	"github.com/byunghee1994/fairspeed-dex/internal/node"
 	"github.com/byunghee1994/fairspeed-dex/internal/noderunner"
+	"github.com/byunghee1994/fairspeed-dex/internal/sequencer"
 	"github.com/byunghee1994/fairspeed-dex/internal/state"
 	"github.com/byunghee1994/fairspeed-dex/internal/store"
 )
@@ -48,10 +50,12 @@ func main() {
 		runStart(os.Args[2:])
 	case "show-node-id":
 		runShowNodeID(os.Args[2:])
+	case "sequencer":
+		runSequencer(os.Args[2:])
 	case "demo":
 		runDemoCmd(os.Args[2:])
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown subcommand %q. Use init, start, show-node-id, or demo.\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "Unknown subcommand %q. Use init, start, show-node-id, sequencer, or demo.\n", os.Args[1])
 		os.Exit(1)
 	}
 }
@@ -71,6 +75,7 @@ func runInit(args []string) {
 
 // runStart starts the embedded CometBFT node with REST API.
 // Both CometBFT and the REST API share the same *node.LocalNode instance.
+// Pass -read-only to run as a non-voting read replica instead of a validator.
 func runStart(args []string) {
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
 	homeDir := fs.String("home", "./nodedata", "node home directory")
@@ -78,6 +83,7 @@ func runStart(args []string) {
 	logEvents := fs.Bool("log-events", false, "log all chain events to stdout")
 	peers := fs.String("peers", "", "comma-separated persistent_peers override (e.g. for Docker)")
 	p2pPort := fs.Int("p2p-port", 0, "P2P listen port override (0 = use config.toml)")
+	readOnly := fs.Bool("read-only", false, "run as non-voting read replica (serves API only)")
 	_ = fs.Parse(args)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -88,6 +94,7 @@ func runStart(args []string) {
 		LogEvents: *logEvents,
 		Peers:     *peers,
 		P2PPort:   *p2pPort,
+		ReadOnly:  *readOnly,
 	})
 	if err != nil {
 		log.Fatalf("start node: %v", err)
@@ -129,6 +136,64 @@ func runShowNodeID(args []string) {
 		log.Fatalf("show-node-id: %v", err)
 	}
 	fmt.Println(id)
+}
+
+// runSequencer starts the transaction sequencer service.
+//
+// The sequencer is a lightweight HTTP gateway that accepts WireTx JSON on
+// POST /tx, batches incoming transactions, and broadcasts them to one or more
+// validator CometBFT RPC endpoints via broadcast_tx_async.
+// It does NOT participate in consensus.
+//
+// Example:
+//
+//	localnode sequencer \
+//	  -addr :9090 \
+//	  -validators http://node0:26666,http://node1:26676,http://node2:26686,http://node3:26696 \
+//	  -interval 100ms
+func runSequencer(args []string) {
+	fs := flag.NewFlagSet("sequencer", flag.ExitOnError)
+	addr := fs.String("addr", ":9090", "HTTP listen address for transaction ingress")
+	validators := fs.String("validators", "", "comma-separated CometBFT RPC endpoints")
+	interval := fs.Duration("interval", 100*time.Millisecond, "batch flush interval")
+	maxBatch := fs.Int("max-batch", 500, "max transactions per flush")
+	queueDepth := fs.Int("queue", 10000, "internal queue depth (429 when full)")
+	_ = fs.Parse(args)
+
+	var rpcs []string
+	for _, r := range strings.Split(*validators, ",") {
+		r = strings.TrimSpace(r)
+		if r != "" {
+			rpcs = append(rpcs, r)
+		}
+	}
+	if len(rpcs) == 0 {
+		log.Fatal("sequencer: -validators is required (e.g. http://localhost:26666)")
+	}
+
+	cfg := sequencer.Config{
+		ListenAddr:    *addr,
+		ValidatorRPCs: rpcs,
+		BatchInterval: *interval,
+		MaxBatchSize:  *maxBatch,
+		QueueDepth:    *queueDepth,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-quit
+		log.Printf("Received %s — sequencer shutting down…", sig)
+		cancel()
+	}()
+
+	seq := sequencer.New(cfg)
+	if err := seq.Start(ctx); err != nil {
+		log.Fatalf("sequencer: %v", err)
+	}
 }
 
 // runDemoCmd runs the Alice/Bob demo (standalone in-memory mode).

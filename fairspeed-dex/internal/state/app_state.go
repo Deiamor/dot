@@ -9,8 +9,22 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
 )
 
+// AppState is the single in-memory truth for all DEX state.
+//
+// Locking strategy:
+//   - globalMu  protects accounts, sessions, balances, assets, orders, and
+//     blockHeight — state that is shared across markets.
+//   - marketMus holds one RWMutex per market (lazy-initialised via sync.Map).
+//     Orderbook reads/writes use only the per-market lock, so concurrent API
+//     reads on BTC-USDC do not block reads or writes on ETH-USDC.
+//
+// Rule: never hold a marketMu while acquiring globalMu, and vice versa.
+// Each AppState method acquires and releases exactly one lock, so deadlock
+// cannot occur.
 type AppState struct {
-	mu          sync.RWMutex
+	globalMu  sync.RWMutex
+	marketMus sync.Map // map[marketId string] → *sync.RWMutex
+
 	Accounts    map[string]*account.NativeAccount
 	Sessions    map[string]*account.TradingSession
 	Balances    map[string]map[string]*asset.Balance
@@ -31,49 +45,55 @@ func NewAppState() *AppState {
 	}
 }
 
+// marketMu returns (or creates) the per-market RWMutex for marketId.
+func (s *AppState) marketMu(marketId string) *sync.RWMutex {
+	v, _ := s.marketMus.LoadOrStore(marketId, &sync.RWMutex{})
+	return v.(*sync.RWMutex)
+}
+
 func (s *AppState) IncrementBlock() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
 	s.BlockHeight++
 }
 
 func (s *AppState) CurrentHeight() int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
 	return s.BlockHeight
 }
 
 // --- account.AccountStore ---
 
 func (s *AppState) GetAccount(id string) (*account.NativeAccount, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
 	a, ok := s.Accounts[id]
 	return a, ok
 }
 
 func (s *AppState) SetAccount(a *account.NativeAccount) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
 	s.Accounts[a.AccountId] = a
 }
 
 func (s *AppState) GetSession(id string) (*account.TradingSession, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
 	sess, ok := s.Sessions[id]
 	return sess, ok
 }
 
 func (s *AppState) SetSession(sess *account.TradingSession) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
 	s.Sessions[sess.SessionId] = sess
 }
 
 func (s *AppState) AllSessions(accountId string) []*account.TradingSession {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
 	var result []*account.TradingSession
 	for _, sess := range s.Sessions {
 		if sess.AccountId == accountId {
@@ -86,21 +106,21 @@ func (s *AppState) AllSessions(accountId string) []*account.TradingSession {
 // --- asset.BalanceStore ---
 
 func (s *AppState) GetAsset(id string) (*asset.Asset, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
 	a, ok := s.Assets[id]
 	return a, ok
 }
 
 func (s *AppState) SetAsset(a *asset.Asset) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
 	s.Assets[a.AssetId] = a
 }
 
 func (s *AppState) GetBalance(accountId, assetId string) *asset.Balance {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
 	return s.getBalanceLocked(accountId, assetId)
 }
 
@@ -116,8 +136,8 @@ func (s *AppState) getBalanceLocked(accountId, assetId string) *asset.Balance {
 }
 
 func (s *AppState) SetBalance(b *asset.Balance) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
 	if s.Balances[b.AccountId] == nil {
 		s.Balances[b.AccountId] = make(map[string]*asset.Balance)
 	}
@@ -125,8 +145,8 @@ func (s *AppState) SetBalance(b *asset.Balance) {
 }
 
 func (s *AppState) Reserve(accountId, assetId string, amount int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
 	b := s.getBalanceLocked(accountId, assetId)
 	if b.Available < amount {
 		return fmt.Errorf("insufficient balance: account=%s asset=%s available=%d required=%d",
@@ -146,8 +166,8 @@ func (s *AppState) Reserve(accountId, assetId string, amount int64) error {
 }
 
 func (s *AppState) Release(accountId, assetId string, amount int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
 	b := s.getBalanceLocked(accountId, assetId)
 	if b.Reserved < amount {
 		return fmt.Errorf("insufficient reserved: account=%s asset=%s reserved=%d required=%d",
@@ -168,35 +188,40 @@ func (s *AppState) Release(accountId, assetId string, amount int64) error {
 
 // --- clob.OrderStore ---
 
+// GetOrderBook acquires only the per-market read lock, so reads on
+// BTC-USDC do not block reads on ETH-USDC.
 func (s *AppState) GetOrderBook(marketId string) (*clob.OrderBook, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	mu := s.marketMu(marketId)
+	mu.RLock()
+	defer mu.RUnlock()
 	ob, ok := s.OrderBooks[marketId]
 	return ob, ok
 }
 
+// SetOrderBook acquires only the per-market write lock.
 func (s *AppState) SetOrderBook(ob *clob.OrderBook) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	mu := s.marketMu(ob.MarketId)
+	mu.Lock()
+	defer mu.Unlock()
 	s.OrderBooks[ob.MarketId] = ob
 }
 
 func (s *AppState) GetOrder(id string) (*clob.Order, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
 	o, ok := s.Orders[id]
 	return o, ok
 }
 
 func (s *AppState) SetOrder(o *clob.Order) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
 	s.Orders[o.OrderId] = o
 }
 
 func (s *AppState) AllOrders() []*clob.Order {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
 	orders := make([]*clob.Order, 0, len(s.Orders))
 	for _, o := range s.Orders {
 		orders = append(orders, o)

@@ -7,7 +7,7 @@ DOCKER_TAG := fairspeed-dex:latest
 .PHONY: all build test lint clean \
         node-init node-start \
         testnet-init testnet-start testnet-stop testnet-clean \
-        docker-build docker-up docker-down
+        docker-build docker-up docker-down docker-logs
 
 all: build
 
@@ -57,23 +57,33 @@ testnet-stop:
 testnet-clean:
 	BASE_DIR=$(BASE_DIR) ./scripts/testnet.sh clean
 
-## ── Docker ───────────────────────────────────────────────────────────────────
+## ── Docker (6 containers: 4 validators + replica + sequencer) ────────────────
 
 docker-build:
 	docker build -t $(DOCKER_TAG) -f deployments/Dockerfile .
 
-# Initialise .testnet/ dirs and generate deployments/.env with Docker peer addresses.
+# Init validator dirs, init replica dir (not in genesis), generate .env.
 docker-testnet-init: build
 	BINARY=$(BINARY) CHAIN_ID=$(CHAIN_ID) BASE_DIR=$(BASE_DIR) \
 	  ./scripts/testnet.sh init
+	@echo "==> Initialising read replica"
+	$(BINARY) init \
+	  -home     $(BASE_DIR)/replica \
+	  -chain-id $(CHAIN_ID) \
+	  -moniker  replica
+	@echo "  Copying shared genesis to replica"
+	cp $(BASE_DIR)/genesis.json $(BASE_DIR)/replica/config/genesis.json
 	BINARY=$(BINARY) BASE_DIR=$(BASE_DIR) \
 	  ./scripts/gen-docker-env.sh
 
-# Build image and start 4 containers. Requires: make docker-testnet-init
+# Build image and start all 6 containers. Requires: make docker-testnet-init
 docker-up: docker-build
 	docker compose -f deployments/docker-compose.yml up -d
-	@echo "Testnet running. API ports: 8080 8081 8082 8083"
-	@echo "Logs: docker compose -f deployments/docker-compose.yml logs -f"
+	@echo "Testnet running."
+	@echo "  REST API (replica) : http://localhost:8084"
+	@echo "  Sequencer ingress  : http://localhost:9090"
+	@echo "  P2P node0 (ext)    : localhost:26656"
+	@echo "Logs: make docker-logs"
 
 docker-down:
 	docker compose -f deployments/docker-compose.yml down

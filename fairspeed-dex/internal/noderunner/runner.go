@@ -45,6 +45,11 @@ type RunConfig struct {
 	// P2PPort overrides the P2P listen port (0 = use config.toml value).
 	// Useful when all Docker containers should listen on the same internal port.
 	P2PPort int
+	// ReadOnly starts the node as a non-voting full node (read replica).
+	// The node syncs blocks from validators via P2P/BlockSync and runs the ABCI
+	// app to maintain state, but never signs or broadcasts votes.
+	// Use this for API-serving nodes that should not affect consensus.
+	ReadOnly bool
 }
 
 // configFilePath returns the path to config.toml inside homeDir.
@@ -178,6 +183,9 @@ func RunNode(ctx context.Context, rc RunConfig) (Result, error) {
 		return Result{}, fmt.Errorf("load node key: %w", err)
 	}
 
+	// In ReadOnly (replica) mode we still need a FilePV object to satisfy the
+	// CometBFT API, but the key is never in the genesis validator set, so it
+	// will never sign votes — the node simply syncs and serves state.
 	var pv *cmtprivval.FilePV
 	if _, err := os.Stat(cmtCfg.PrivValidatorKeyFile()); err == nil {
 		pv = cmtprivval.LoadFilePV(cmtCfg.PrivValidatorKeyFile(), cmtCfg.PrivValidatorStateFile())
