@@ -214,15 +214,29 @@ func (s *Server) buildOrderBookResponse(ob *clob.OrderBook, marketId string) Ord
 	return OrderBookResponse{MarketId: marketId, Bids: bidLevels, Asks: askLevels}
 }
 
+const (
+	maxIDLen     = 64   // max length for account/session/market IDs
+	maxNotional  = 1_000_000_000_000 // 1 trillion — sane upper bound
+)
+
 func validateOrderRequest(req SubmitOrderRequest) error {
 	if req.AccountId == "" {
 		return errorf("account_id required")
 	}
+	if len(req.AccountId) > maxIDLen {
+		return errorf("account_id too long")
+	}
 	if req.SessionId == "" {
 		return errorf("session_id required")
 	}
+	if len(req.SessionId) > maxIDLen {
+		return errorf("session_id too long")
+	}
 	if req.MarketId == "" {
 		return errorf("market_id required")
+	}
+	if len(req.MarketId) > maxIDLen {
+		return errorf("market_id too long")
 	}
 	if req.Side != "BUY" && req.Side != "SELL" {
 		return errorf("side must be BUY or SELL")
@@ -230,8 +244,22 @@ func validateOrderRequest(req SubmitOrderRequest) error {
 	if req.Price <= 0 {
 		return errorf("price must be > 0")
 	}
+	if req.Price > maxNotional {
+		return errorf("price exceeds maximum allowed value")
+	}
 	if req.Quantity <= 0 {
 		return errorf("quantity must be > 0")
+	}
+	if req.Quantity > maxNotional {
+		return errorf("quantity exceeds maximum allowed value")
+	}
+	// Overflow guard: price * quantity must not overflow int64
+	if req.Price > maxNotional/req.Quantity {
+		return errorf("notional value (price × quantity) exceeds maximum")
+	}
+	tif := req.TimeInForce
+	if tif != "" && tif != "GTC" && tif != "FOK" && tif != "IOC" {
+		return errorf("time_in_force must be GTC, FOK, or IOC")
 	}
 	return nil
 }
@@ -447,6 +475,18 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
+	if req.OwnerAddress == "" {
+		writeError(w, http.StatusBadRequest, "owner_address required")
+		return
+	}
+	if len(req.OwnerAddress) > 128 {
+		writeError(w, http.StatusBadRequest, "owner_address too long")
+		return
+	}
+	if req.RootPublicKey == "" {
+		writeError(w, http.StatusBadRequest, "root_public_key required")
+		return
+	}
 	nextHeight := s.node.CurrentHeight() + 1
 	batch := fairbatch.NewBatchBuilder(nextHeight).
 		AddCreateAccount(req.OwnerAddress, req.RootPublicKey, req.WithdrawalPublicKey).
@@ -623,6 +663,87 @@ func (s *Server) handlePoints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handleGetPoints(w, r)
+}
+
+// handleOrderHistory handles GET /orders/{accountId}/history
+func (s *Server) handleOrderHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	// path: /orders/{accountId}/history
+	rest := pathSuffix(r.URL.Path, "/orders/")
+	accountId := strings.TrimSuffix(rest, "/history")
+	if accountId == "" || accountId == rest {
+		writeError(w, http.StatusBadRequest, "path must be /orders/{accountId}/history")
+		return
+	}
+	limit := 100
+	orders := s.node.GetOrderHistory(accountId, limit)
+	resp := make([]OrderHistoryResponse, len(orders))
+	for i, o := range orders {
+		resp[i] = OrderHistoryResponse{
+			OrderId:            o.OrderId,
+			MarketId:           o.MarketId,
+			Side:               string(o.Side),
+			Price:              o.Price,
+			Quantity:           o.Quantity,
+			RemainingQuantity:  o.RemainingQuantity,
+			FilledQuantity:     o.Quantity - o.RemainingQuantity,
+			Status:             string(o.Status),
+			TimeInForce:        string(o.TimeInForce),
+			CreatedBlockHeight: o.CreatedBlockHeight,
+			ClientOrderId:      o.ClientOrderId,
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleOpenOrders handles GET /orders/{accountId}/open
+func (s *Server) handleOpenOrders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	rest := pathSuffix(r.URL.Path, "/orders/")
+	accountId := strings.TrimSuffix(rest, "/open")
+	if accountId == "" || accountId == rest {
+		writeError(w, http.StatusBadRequest, "path must be /orders/{accountId}/open")
+		return
+	}
+	orders := s.node.AllOpenOrdersForAccount(accountId)
+	resp := make([]OrderHistoryResponse, len(orders))
+	for i, o := range orders {
+		resp[i] = OrderHistoryResponse{
+			OrderId:            o.OrderId,
+			MarketId:           o.MarketId,
+			Side:               string(o.Side),
+			Price:              o.Price,
+			Quantity:           o.Quantity,
+			RemainingQuantity:  o.RemainingQuantity,
+			FilledQuantity:     o.Quantity - o.RemainingQuantity,
+			Status:             string(o.Status),
+			TimeInForce:        string(o.TimeInForce),
+			CreatedBlockHeight: o.CreatedBlockHeight,
+			ClientOrderId:      o.ClientOrderId,
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleOrdersRouter dispatches /orders/{accountId}/history and /orders/{accountId}/open.
+func (s *Server) handleOrdersRouter(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	if strings.HasSuffix(path, "/history") {
+		s.handleOrderHistory(w, r)
+		return
+	}
+	if strings.HasSuffix(path, "/open") {
+		s.handleOpenOrders(w, r)
+		return
+	}
+	// Fall back to existing POST /orders handler.
+	s.handleSubmitOrder(w, r)
 }
 
 // handleConditionalOrders routes POST /conditional-orders and GET /conditional-orders/{accountId}.

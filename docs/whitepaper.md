@@ -343,7 +343,65 @@ The Emergency Pause mechanism is controlled by a 7-of-12 multisig held by geogra
 
 ---
 
-## 9. Legal and Risk Disclosures
+## 9. Competitive Landscape
+
+### 9.1 Exchange Comparison
+
+| Dimension | **FairSpeed** | Hyperliquid | dYdX v4 | GMX v2 |
+|-----------|---------------|-------------|---------|--------|
+| **Consensus** | BFT (open validator set) | BFT (closed ~4 validators) | CometBFT (open) | Arbitrum PoS |
+| **Order Book** | On-chain CLOB | On-chain CLOB | On-chain CLOB | AMM (pool-based) |
+| **Front-running protection** | FairBatch SHA-256 sort (provable) | Priority ordering (partial) | Temporal ordering (partial) | MEV via AMM arb |
+| **MEV resistance** | Cryptographic (content-hash) | Economic discouragement | Queue ordering | None (AMMs are MEV magnets) |
+| **Max leverage** | 20× (governance-adjustable) | 50× | 20× | 50× |
+| **Fee model** | 0.02% maker / 0.05% taker | 0.01–0.05% | 0.02% maker / 0.05% taker | 0.05–0.07% |
+| **KYC/AML** | Native (MiCA + FATF tiered) | None | Optional (geo-block) | None |
+| **Governance** | On-chain FAIR token | HYPE token (limited) | DYDX token | GMX token |
+| **Source code** | Open source (MIT) | Closed source | Open source | Open source |
+| **Airdrop model** | Activity-based, anti-sybil | Retroactive | Retroactive | Staking/trading |
+| **Regulatory status** | Singapore Foundation (MAS) | Offshore (unclear) | BVI / Cayman | Offshore |
+
+### 9.2 FairSpeed's Differentiating Advantages
+
+**vs. Hyperliquid**
+
+Hyperliquid pioneered on-chain perpetuals but concentrates risk in a closed validator set (~4 validators known as Virtu, Cumberland, and affiliated entities). Its ordering protocol provides practical but not provable MEV resistance. FairSpeed improves on every axis:
+- Open validator set with stake-weighted BFT — any party meeting the minimum stake can validate
+- FairBatch deterministic ordering: the hash of transaction content determines position, making front-running cryptographically equivalent to breaking SHA-256
+- Native KYC/AML supports institutional participants that Hyperliquid cannot serve
+- Open source enables independent security audits
+
+**vs. dYdX v4**
+
+dYdX v4 runs CometBFT consensus on a Cosmos appchain, which is architecturally similar to FairSpeed. However:
+- dYdX's ordering is temporal (first-seen wins), which preserves MEV opportunity for proposers
+- dYdX has no native compliance layer; institutional access requires out-of-band whitelisting
+- dYdX operates CLOB offchain (order placement offchain, settlement onchain), creating latency asymmetry
+- FairSpeed's CLOB is fully onchain with no offchain component
+
+**vs. GMX / Perpetual Protocol (AMM-based)**
+
+AMM-based perpetual exchanges eliminate the orderbook but introduce new problems:
+- Pool LPs bear directional risk (they are the counterparty to all trades)
+- AMM pricing creates predictable arbitrage paths — the definition of MEV
+- Liquidation prices are oracle-dependent and manipulable
+- FairSpeed's CLOB provides true price discovery and tighter spreads
+
+### 9.3 Market Opportunity Sizing
+
+| Metric | Value |
+|--------|-------|
+| Total crypto perp volume (daily, 2025) | ~$150B |
+| On-chain perp share | ~12% (~$18B/day) |
+| Hyperliquid peak daily volume | ~$8B/day |
+| Target FairSpeed market share (Year 2) | 5% of on-chain (~$900M/day) |
+| Annualized fee revenue at $900M/day | ~$180M (at 0.04% blended fee) |
+
+Even a 1% share of the current on-chain perp market represents $66B of annualized notional and ~$26M in annual protocol fees — sufficient to sustain validator rewards, treasury growth, and development velocity independently of token price.
+
+---
+
+## 10. Legal and Risk Disclosures
 
 ### 9.1 Foundation Structure
 
@@ -382,7 +440,7 @@ FairSpeed has been designed with MiCA compliance as a first-order requirement. S
 
 ---
 
-## 10. Conclusion
+## 11. Conclusion
 
 FairSpeed DEX addresses the three fundamental failures of existing decentralized perpetuals markets: extractable ordering advantage, governance capture, and regulatory opacity. FairBatch establishes a cryptographic guarantee of ordering fairness that no other production perpetuals protocol has achieved. The open validator set and fully public codebase make the system auditable and trustless in a meaningful sense. And the native KYC/AML compliance layer positions FairSpeed as the only on-chain perpetuals venue that institutional capital can access without regulatory risk.
 

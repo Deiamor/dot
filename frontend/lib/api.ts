@@ -154,3 +154,54 @@ export async function requestFaucet(accountId: string, asset?: string): Promise<
   if (!res.ok) throw new Error(`Faucet error: ${res.status}`)
   return res.json()
 }
+
+export interface ConditionalOrderRequest {
+  account_id: string
+  session_id: string
+  market_id: string
+  side: 'BUY' | 'SELL'
+  order_type: 'MARKET' | 'LIMIT'
+  price: number
+  quantity: number
+  trigger_price: number
+  trigger_condition: 'GTE' | 'LTE'
+  reduce_only: boolean
+  expire_after_blocks: number
+}
+
+export interface ConditionalOrderResponse {
+  order_id: string
+  account_id: string
+  market_id: string
+  side: string
+  trigger_price: number
+  trigger_condition: string
+  quantity: number
+  status: string
+  expire_block_height: number
+}
+
+export async function submitConditionalOrder(req: ConditionalOrderRequest): Promise<ConditionalOrderResponse> {
+  const res = await fetch(`${BASE}/conditional-orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error(`Failed to submit conditional order: ${res.status}`)
+  return res.json()
+}
+
+export async function getConditionalOrders(accountId: string): Promise<ConditionalOrderResponse[]> {
+  const res = await fetch(`${BASE}/conditional-orders/${accountId}`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Failed to fetch conditional orders: ${res.status}`)
+  return res.json()
+}
+
+export async function cancelConditionalOrder(orderId: string, accountId: string): Promise<void> {
+  const res = await fetch(`${BASE}/conditional-orders/${orderId}?account_id=${encodeURIComponent(accountId)}`, {
+    method: 'DELETE',
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error(`Failed to cancel conditional order: ${res.status}`)
+}

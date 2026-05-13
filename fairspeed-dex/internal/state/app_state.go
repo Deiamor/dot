@@ -16,6 +16,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
 	"github.com/byunghee1994/fairspeed-dex/internal/oracle"
 	"github.com/byunghee1994/fairspeed-dex/internal/points"
+	"github.com/byunghee1994/fairspeed-dex/internal/token"
 	"github.com/byunghee1994/fairspeed-dex/internal/validator"
 )
 
@@ -55,6 +56,8 @@ type AppState struct {
 	LastFundingBlock     map[string]int64                                  // marketId → last settlement height
 	IndexPrices          map[string]int64                                  // marketId → off-chain index price (0 = use markPrice)
 	ConditionalOrders    map[string]*clob.ConditionalOrder                 // orderId → conditional order
+	OrderHistory         map[string][]*clob.Order                          // accountId → completed orders (FILLED/CANCELLED/EXPIRED)
+	VestingSchedules     map[string]map[string]*token.VestingSchedule       // accountId → assetId → schedule
 	PointsData          map[string]*points.AccountPoints                  // accountId → points
 	PointsOrder         []string                                          // registration order for early-bird
 	BlockHeight         int64
@@ -82,6 +85,8 @@ func NewAppState() *AppState {
 		LastFundingBlock:  make(map[string]int64),
 		IndexPrices:       make(map[string]int64),
 		ConditionalOrders: make(map[string]*clob.ConditionalOrder),
+		OrderHistory:      make(map[string][]*clob.Order),
+		VestingSchedules:  make(map[string]map[string]*token.VestingSchedule),
 		PointsData:        make(map[string]*points.AccountPoints),
 		PointsOrder:       []string{},
 	}
@@ -865,6 +870,44 @@ func (s *AppState) AllOrders() []*clob.Order {
 	return orders
 }
 
+// RecordOrderHistory appends a completed order to the account's history (max 500 entries).
+func (s *AppState) RecordOrderHistory(o *clob.Order) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	cp := *o
+	history := s.OrderHistory[o.AccountId]
+	history = append([]*clob.Order{&cp}, history...)
+	if len(history) > 500 {
+		history = history[:500]
+	}
+	s.OrderHistory[o.AccountId] = history
+}
+
+// GetOrderHistory returns completed orders for accountId (newest first, up to limit).
+func (s *AppState) GetOrderHistory(accountId string, limit int) []*clob.Order {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	history := s.OrderHistory[accountId]
+	if limit > 0 && limit < len(history) {
+		return history[:limit]
+	}
+	return history
+}
+
+// AllOrdersForAccount returns all OPEN orders belonging to accountId.
+func (s *AppState) AllOrdersForAccount(accountId string) []*clob.Order {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	var out []*clob.Order
+	for _, o := range s.Orders {
+		if o.AccountId == accountId {
+			cp := *o
+			out = append(out, &cp)
+		}
+	}
+	return out
+}
+
 // ---- funding rate -----------------------------------------------------------
 
 // GetLastFundingBlock returns the block height of the last funding settlement
@@ -1018,6 +1061,38 @@ func (s *AppState) AllConditionalOrdersForAccount(accountId string) []clob.Condi
 		}
 	}
 	return out
+}
+
+// SetVestingSchedule registers a vesting schedule for accountId+assetId.
+func (s *AppState) SetVestingSchedule(accountId, assetId string, schedule token.VestingSchedule) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	if s.VestingSchedules[accountId] == nil {
+		s.VestingSchedules[accountId] = make(map[string]*token.VestingSchedule)
+	}
+	cp := schedule
+	s.VestingSchedules[accountId][assetId] = &cp
+}
+
+// GetVestingSchedule returns the vesting schedule for accountId+assetId (nil if none).
+func (s *AppState) GetVestingSchedule(accountId, assetId string) *token.VestingSchedule {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	if m := s.VestingSchedules[accountId]; m != nil {
+		return m[assetId]
+	}
+	return nil
+}
+
+// UpdateVestingReleased marks additional released tokens on the schedule.
+func (s *AppState) UpdateVestingReleased(accountId, assetId string, additionalReleased int64) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	if m := s.VestingSchedules[accountId]; m != nil {
+		if sched := m[assetId]; sched != nil {
+			sched.Released += additionalReleased
+		}
+	}
 }
 
 // AllPerpMarkets returns all PERP market IDs and their configs.

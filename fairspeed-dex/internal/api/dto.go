@@ -202,6 +202,21 @@ type FaucetResponse struct {
 	Status  string `json:"status"`
 }
 
+// OrderHistoryResponse is one entry in GET /orders/{accountId}/history.
+type OrderHistoryResponse struct {
+	OrderId            string `json:"order_id"`
+	MarketId           string `json:"market_id"`
+	Side               string `json:"side"`
+	Price              int64  `json:"price"`
+	Quantity           int64  `json:"quantity"`
+	RemainingQuantity  int64  `json:"remaining_quantity"`
+	FilledQuantity     int64  `json:"filled_quantity"`
+	Status             string `json:"status"`
+	TimeInForce        string `json:"time_in_force"`
+	CreatedBlockHeight int64  `json:"created_block_height"`
+	ClientOrderId      string `json:"client_order_id,omitempty"`
+}
+
 func tradeToResponse(t settlement.TradeExecution) TradeResponse {
 	return TradeResponse{
 		TradeId:        t.TradeId,

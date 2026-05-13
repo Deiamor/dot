@@ -8,6 +8,7 @@ type OrderStore interface {
 	GetOrder(id string) (*Order, bool)
 	SetOrder(o *Order)
 	AllOrders() []*Order
+	RecordOrderHistory(o *Order)
 }
 
 type ReserveStore interface {
@@ -114,6 +115,7 @@ func (k *OrderBookKeeper) CancelOrder(orderId, accountId string, blockHeight int
 
 	o.Status = OrderStatusCancelled
 	k.orderStore.SetOrder(o)
+	k.orderStore.RecordOrderHistory(o)
 	k.bus.PublishOrderCancelled(orderId, accountId, blockHeight)
 	return nil
 }
@@ -139,6 +141,7 @@ func (k *OrderBookKeeper) ExpireOrders(blockHeight int64) []Order {
 			}
 			o.Status = OrderStatusExpired
 			k.orderStore.SetOrder(o)
+			k.orderStore.RecordOrderHistory(o)
 			k.bus.PublishOrderExpired(o.OrderId, o.AccountId, blockHeight)
 			expired = append(expired, *o)
 		}

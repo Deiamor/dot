@@ -496,3 +496,13 @@ func (n *LocalNode) PointsLeaderboard(topN int) []*points.AccountPoints {
 	}
 	return n.PointsKeeper.Leaderboard(topN)
 }
+
+// GetOrderHistory returns completed orders for accountId (newest first, up to limit).
+func (n *LocalNode) GetOrderHistory(accountId string, limit int) []*clob.Order {
+	return n.AppState.GetOrderHistory(accountId, limit)
+}
+
+// AllOpenOrdersForAccount returns all OPEN orders for accountId.
+func (n *LocalNode) AllOpenOrdersForAccount(accountId string) []*clob.Order {
+	return n.AppState.AllOrdersForAccount(accountId)
+}

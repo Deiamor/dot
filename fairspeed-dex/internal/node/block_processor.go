@@ -404,6 +404,10 @@ func (p *LocalBlockProcessor) processOrder(o clob.Order, txHash string, blockHei
 			p.releaseCollateral(o, o.Quantity)
 		}
 		p.AppState.SetOrder(&o)
+		// Record completed (non-open) orders in account history.
+		if o.Status != clob.OrderStatusOpen && o.Status != clob.OrderStatusPartiallyFilled {
+			p.AppState.RecordOrderHistory(&o)
+		}
 		if o.Status == clob.OrderStatusRejected {
 			p.emitOrderRejected(o, "FOK not fillable", blockHeight)
 		} else {
@@ -560,6 +564,14 @@ func (p *LocalBlockProcessor) processWithdrawRequest(payload fairbatch.WithdrawR
 	if _, err := p.AccountKeeper.IncrementSequence(payload.AccountId); err != nil {
 		return fmt.Errorf("increment sequence: %w", err)
 	}
+	// Vesting check: if a vesting schedule exists for this asset, ensure the
+	// requested amount does not exceed what has vested but not yet been released.
+	if sched := p.AppState.GetVestingSchedule(payload.AccountId, payload.AssetId); sched != nil {
+		releasable := sched.ReleasableNow(blockHeight)
+		if payload.Amount > releasable {
+			return fmt.Errorf("withdrawal exceeds vested amount: requested %d, releasable %d", payload.Amount, releasable)
+		}
+	}
 	// Reserve funds so they cannot be spent while the withdrawal is pending.
 	if err := p.AssetKeeper.Reserve(payload.AccountId, payload.AssetId, payload.Amount); err != nil {
 		return fmt.Errorf("reserve for withdrawal: %w", err)
@@ -596,6 +608,8 @@ func (p *LocalBlockProcessor) processReadyWithdrawals(blockHeight int64) {
 		// Transfer reserved funds out of the account (completed withdrawal).
 		if err := p.AssetKeeper.Release(w.AccountId, w.AssetId, w.Amount); err == nil {
 			if err := p.AssetKeeper.Withdraw(w.AccountId, w.AssetId, w.Amount); err == nil {
+				// Update vesting released counter if applicable.
+				p.AppState.UpdateVestingReleased(w.AccountId, w.AssetId, w.Amount)
 				p.AppState.CompletePendingWithdrawal(w.WithdrawalId)
 				p.EventBus.Publish(state.Event{
 					Type:        state.EventWithdrawFinalized,
