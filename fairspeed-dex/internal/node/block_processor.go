@@ -387,8 +387,7 @@ func (p *LocalBlockProcessor) processOrder(o clob.Order, txHash string, blockHei
 			if p.PointsKeeper != nil {
 				notional := t.Price * t.Quantity
 				isPerp := p.AppState.IsPerp(t.MarketId)
-				p.PointsKeeper.RecordTrade(t.MakerAccountId, notional, isPerp, true)
-				p.PointsKeeper.RecordTrade(t.TakerAccountId, notional, isPerp, false)
+				p.PointsKeeper.RecordTradePair(t.MakerAccountId, t.TakerAccountId, notional, isPerp, blockHeight)
 			}
 		}
 	}

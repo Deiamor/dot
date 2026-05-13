@@ -104,13 +104,14 @@ type BalanceResponse struct {
 
 // PositionResponse is one PERP position for GET /positions/{accountId}.
 type PositionResponse struct {
-	MarketId        string `json:"market_id"`
-	NetQuantity     int64  `json:"net_quantity"`
-	AvgEntryPrice   int64  `json:"avg_entry_price"`
-	AllocatedMargin int64  `json:"allocated_margin"`
-	UnrealizedPnL   int64  `json:"unrealized_pnl"`
-	MarkPrice       int64  `json:"mark_price"`
-	Side            string `json:"side"` // "LONG" | "SHORT" | "FLAT"
+	MarketId         string `json:"market_id"`
+	NetQuantity      int64  `json:"net_quantity"`
+	AvgEntryPrice    int64  `json:"avg_entry_price"`
+	AllocatedMargin  int64  `json:"allocated_margin"`
+	UnrealizedPnL    int64  `json:"unrealized_pnl"`
+	MarkPrice        int64  `json:"mark_price"`
+	LiquidationPrice int64  `json:"liquidation_price"`
+	Side             string `json:"side"` // "LONG" | "SHORT" | "FLAT"
 }
 
 // CreateAccountRequest is the JSON body for POST /accounts.
@@ -158,6 +159,47 @@ type LeaderboardEntry struct {
 type ReferralRequest struct {
 	AccountId  string `json:"account_id"`
 	ReferrerId string `json:"referrer_id"`
+}
+
+// SubmitConditionalOrderRequest is the JSON body for POST /conditional-orders.
+type SubmitConditionalOrderRequest struct {
+	AccountId         string `json:"account_id"`
+	SessionId         string `json:"session_id"`
+	MarketId          string `json:"market_id"`
+	Side              string `json:"side"`
+	OrderType         string `json:"order_type"` // "MARKET" | "LIMIT"
+	Price             int64  `json:"price"`
+	Quantity          int64  `json:"quantity"`
+	TriggerPrice      int64  `json:"trigger_price"`
+	TriggerCondition  string `json:"trigger_condition"` // "GTE" | "LTE"
+	ReduceOnly        bool   `json:"reduce_only"`
+	ExpireAfterBlocks int64  `json:"expire_after_blocks"`
+}
+
+// ConditionalOrderResponse is returned for a conditional order.
+type ConditionalOrderResponse struct {
+	OrderId           string `json:"order_id"`
+	AccountId         string `json:"account_id"`
+	MarketId          string `json:"market_id"`
+	Side              string `json:"side"`
+	OrderType         string `json:"order_type"`
+	Price             int64  `json:"price"`
+	Quantity          int64  `json:"quantity"`
+	TriggerPrice      int64  `json:"trigger_price"`
+	TriggerCondition  string `json:"trigger_condition"`
+	ReduceOnly        bool   `json:"reduce_only"`
+	Status            string `json:"status"`
+	ExpireBlockHeight int64  `json:"expire_block_height"`
+	CreatedBlockHeight int64 `json:"created_block_height"`
+}
+
+// FaucetResponse is returned by GET /faucet/{address}.
+type FaucetResponse struct {
+	Address string `json:"address"`
+	AssetId string `json:"asset_id"`
+	Amount  int64  `json:"amount"`
+	TxId    string `json:"tx_id"`
+	Status  string `json:"status"`
 }
 
 func tradeToResponse(t settlement.TradeExecution) TradeResponse {

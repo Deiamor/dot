@@ -9,6 +9,7 @@ const (
 	ReferralPercent      int64 = 10 // 10% of referee's points
 	EarlyBirdMultiplier  int64 = 2  // first 10,000 wallets: 2x
 	EarlyBirdLimit       int64 = 10_000
+	MaxDailyPoints       int64 = 10_000_000 // anti-wash-trade daily cap per account (~$2.5M notional)
 )
 
 // TradePoints calculates points for a single trade.
@@ -31,10 +32,12 @@ func TradePoints(notional int64, isPerp, isMaker bool) int64 {
 
 // AccountPoints holds the points balance for a single account.
 type AccountPoints struct {
-	AccountId      string
-	TotalPoints    int64
-	TradePoints    int64
-	ReferralPoints int64
-	IsEarlyBird    bool
-	ReferrerId     string // accountId of referrer (empty if none)
+	AccountId       string
+	TotalPoints     int64
+	TradePoints     int64
+	ReferralPoints  int64
+	IsEarlyBird     bool
+	ReferrerId      string // accountId of referrer (empty if none)
+	DailyPoints     int64  // points earned in current settlement day
+	LastSettledDay  int64  // block-height-based day index for cap reset
 }

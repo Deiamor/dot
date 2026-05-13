@@ -439,6 +439,31 @@ func (n *LocalNode) AllConditionalOrders(marketId string) []clob.ConditionalOrde
 	return n.AppState.AllConditionalOrdersForMarket(marketId)
 }
 
+// AllConditionalOrdersForAccount returns all conditional orders for an account.
+func (n *LocalNode) AllConditionalOrdersForAccount(accountId string) []clob.ConditionalOrder {
+	return n.AppState.AllConditionalOrdersForAccount(accountId)
+}
+
+// SubmitConditionalOrder wraps a ConditionalOrder into a FairBatch and processes it.
+func (n *LocalNode) SubmitConditionalOrder(o clob.ConditionalOrder) error {
+	nextHeight := n.AppState.CurrentHeight() + 1
+	o.CreatedBlockHeight = nextHeight
+	if o.ExpireBlockHeight == 0 {
+		o.ExpireBlockHeight = nextHeight + 3_600 // default: ~1h at 1s blocks
+	}
+	batch := fairbatch.NewBatchBuilder(nextHeight).AddSubmitConditionalOrder(o).Build()
+	_, err := n.SubmitBatch(batch)
+	return err
+}
+
+// CancelConditionalOrder wraps a cancel into a FairBatch and processes it.
+func (n *LocalNode) CancelConditionalOrder(orderId, accountId string) error {
+	nextHeight := n.AppState.CurrentHeight() + 1
+	batch := fairbatch.NewBatchBuilder(nextHeight).AddCancelConditionalOrder(orderId, accountId).Build()
+	_, err := n.SubmitBatch(batch)
+	return err
+}
+
 // GetPointsKeeper returns the PointsKeeper for this node.
 func (n *LocalNode) GetPointsKeeper() *points.PointsKeeper {
 	return n.PointsKeeper

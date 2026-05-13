@@ -1007,6 +1007,19 @@ func (s *AppState) AllConditionalOrdersForMarket(marketId string) []clob.Conditi
 	return out
 }
 
+// AllConditionalOrdersForAccount returns all conditional orders for a given account.
+func (s *AppState) AllConditionalOrdersForAccount(accountId string) []clob.ConditionalOrder {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	var out []clob.ConditionalOrder
+	for _, o := range s.ConditionalOrders {
+		if o.AccountId == accountId {
+			out = append(out, *o)
+		}
+	}
+	return out
+}
+
 // AllPerpMarkets returns all PERP market IDs and their configs.
 func (s *AppState) AllPerpMarkets() map[string]*clob.PerpConfig {
 	s.globalMu.RLock()

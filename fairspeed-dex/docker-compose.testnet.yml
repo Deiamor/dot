@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  dex-node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - FAIRSPEED_CONFIG=/app/configs/testnet.json
+      - FAIRSPEED_ADDR=:8080
+    volumes:
+      - dex-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/markets"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://dex-node:8080
+    depends_on:
+      dex-node:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  dex-data:

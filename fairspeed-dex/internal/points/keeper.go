@@ -4,6 +4,10 @@ import (
 	"sort"
 )
 
+// blocksPerDay is the number of blocks assumed per 24h period for daily cap resets.
+// At 1s block time this is 86400; testnet uses 600 (10-min epochs).
+const blocksPerDay int64 = 86_400
+
 // PointsStore is the persistence interface for points data.
 type PointsStore interface {
 	GetAccountPoints(accountId string) *AccountPoints
@@ -25,7 +29,24 @@ func NewPointsKeeper(store PointsStore) *PointsKeeper {
 }
 
 // RecordTrade awards trade points to accountId and propagates referral bonus to referrer.
+// blockHeight is used to enforce the daily points cap (resets every blocksPerDay blocks).
 func (k *PointsKeeper) RecordTrade(accountId string, notional int64, isPerp, isMaker bool) {
+	k.recordTradeInternal(accountId, notional, isPerp, isMaker, 0)
+}
+
+// RecordTradePair awards points for both sides of a trade, refusing to award either side if
+// makerAccountId == takerAccountId (self-trade / wash-trade detection).
+// blockHeight is used for daily cap enforcement.
+func (k *PointsKeeper) RecordTradePair(makerAccountId, takerAccountId string, notional int64, isPerp bool, blockHeight int64) {
+	if makerAccountId == takerAccountId {
+		// Wash trade: zero points for self-trading accounts
+		return
+	}
+	k.recordTradeInternal(makerAccountId, notional, isPerp, true, blockHeight)
+	k.recordTradeInternal(takerAccountId, notional, isPerp, false, blockHeight)
+}
+
+func (k *PointsKeeper) recordTradeInternal(accountId string, notional int64, isPerp, isMaker bool, blockHeight int64) {
 	ap := k.getOrCreate(accountId)
 
 	pts := TradePoints(notional, isPerp, isMaker)
@@ -35,6 +56,22 @@ func (k *PointsKeeper) RecordTrade(accountId string, notional int64, isPerp, isM
 		pts = pts * EarlyBirdMultiplier
 	}
 
+	// Daily cap: only enforce when blockHeight > 0 (not in legacy/no-context calls).
+	if blockHeight > 0 {
+		currentDay := blockHeight / blocksPerDay
+		if currentDay != ap.LastSettledDay {
+			ap.DailyPoints = 0
+			ap.LastSettledDay = currentDay
+		}
+		remaining := MaxDailyPoints - ap.DailyPoints
+		if remaining <= 0 {
+			return
+		}
+		if pts > remaining {
+			pts = remaining
+		}
+		ap.DailyPoints += pts
+	}
 	ap.TradePoints += pts
 	ap.TotalPoints += pts
 	k.store.SetAccountPoints(ap)

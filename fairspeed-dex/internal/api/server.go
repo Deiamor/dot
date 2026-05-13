@@ -24,10 +24,12 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 // Server exposes a LocalNode over HTTP REST + SSE streaming.
 type Server struct {
-	node *node.LocalNode
-	mux  *http.ServeMux
-	srv  *http.Server
-	hub  *StreamHub
+	node        *node.LocalNode
+	mux         *http.ServeMux
+	srv         *http.Server
+	hub         *StreamHub
+	faucetCfg   FaucetConfig
+	faucetState *faucetState
 }
 
 // NewServer creates a new API server bound to addr.
@@ -35,10 +37,17 @@ type Server struct {
 // even when blocks arrive via CometBFT (read-replica path), not just via
 // direct REST calls.
 func NewServer(n *node.LocalNode, addr string) *Server {
+	return NewServerWithFaucet(n, addr, DefaultFaucetConfig())
+}
+
+// NewServerWithFaucet creates a server with an explicit faucet configuration.
+func NewServerWithFaucet(n *node.LocalNode, addr string, faucetCfg FaucetConfig) *Server {
 	s := &Server{
-		node: n,
-		mux:  http.NewServeMux(),
-		hub:  newStreamHub(),
+		node:        n,
+		mux:         http.NewServeMux(),
+		hub:         newStreamHub(),
+		faucetCfg:   faucetCfg,
+		faucetState: newFaucetState(),
 	}
 	s.srv = &http.Server{Addr: addr, Handler: corsMiddleware(s.mux)}
 	s.registerRoutes()
@@ -63,6 +72,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/reports/kyc/", s.handleKYCStatus)
 	s.mux.HandleFunc("/points/", s.handlePoints)
 	s.mux.HandleFunc("/referral", s.handleReferral)
+	s.mux.HandleFunc("/conditional-orders", s.handleConditionalOrders)
+	s.mux.HandleFunc("/conditional-orders/", s.handleConditionalOrders)
+	s.mux.HandleFunc("/faucet/", s.handleFaucet)
 }
 
 // subscribeEvents wires the node's EventBus to SSE hub broadcasts.

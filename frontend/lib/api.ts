@@ -109,3 +109,48 @@ export async function submitOrder(req: SubmitOrderRequest): Promise<OrderRespons
   if (!res.ok) throw new Error(`Failed to submit order: ${res.status}`)
   return res.json()
 }
+
+export interface PointsInfo {
+  account_id: string
+  total_points: number
+  trade_points: number
+  referral_points: number
+  is_early_bird: boolean
+  fair_estimate: number
+}
+
+export interface LeaderboardEntry {
+  rank: number
+  account_id: string
+  total_points: number
+  fair_estimate: number
+}
+
+export async function getPoints(accountId: string): Promise<PointsInfo> {
+  const res = await fetch(`${BASE}/points/${accountId}`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Failed to fetch points: ${res.status}`)
+  return res.json()
+}
+
+export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
+  const res = await fetch(`${BASE}/points/leaderboard`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Failed to fetch leaderboard: ${res.status}`)
+  return res.json()
+}
+
+export async function setReferrer(accountId: string, referrerId: string): Promise<void> {
+  const res = await fetch(`${BASE}/referral`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account_id: accountId, referrer_id: referrerId }),
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error(`Failed to set referrer: ${res.status}`)
+}
+
+export async function requestFaucet(accountId: string, asset?: string): Promise<unknown> {
+  const url = asset ? `${BASE}/faucet/${accountId}?asset=${asset}` : `${BASE}/faucet/${accountId}`
+  const res = await fetch(url, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Faucet error: ${res.status}`)
+  return res.json()
+}

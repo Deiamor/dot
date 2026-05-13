@@ -1,7 +1,9 @@
 package api
 
 import (
+	cryptoRand "crypto/rand"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -406,14 +408,19 @@ func (s *Server) handleGetPositions(w http.ResponseWriter, r *http.Request) {
 		if pos.NetQuantity < 0 {
 			side = "SHORT"
 		}
+		var liqPrice int64
+		if cfg, ok := s.node.GetPerpConfig(pos.MarketId); ok {
+			liqPrice = pos.LiquidationPrice(cfg.MaintenanceMarginBps)
+		}
 		resp = append(resp, PositionResponse{
-			MarketId:        pos.MarketId,
-			NetQuantity:     pos.NetQuantity,
-			AvgEntryPrice:   pos.AvgEntryPrice,
-			AllocatedMargin: pos.AllocatedMargin,
-			UnrealizedPnL:   pnl,
-			MarkPrice:       markPrice,
-			Side:            side,
+			MarketId:         pos.MarketId,
+			NetQuantity:      pos.NetQuantity,
+			AvgEntryPrice:    pos.AvgEntryPrice,
+			AllocatedMargin:  pos.AllocatedMargin,
+			UnrealizedPnL:    pnl,
+			MarkPrice:        markPrice,
+			LiquidationPrice: liqPrice,
+			Side:             side,
 		})
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -616,4 +623,126 @@ func (s *Server) handlePoints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handleGetPoints(w, r)
+}
+
+// handleConditionalOrders routes POST /conditional-orders and GET /conditional-orders/{accountId}.
+func (s *Server) handleConditionalOrders(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		s.handleSubmitConditionalOrder(w, r)
+	case http.MethodGet:
+		s.handleGetConditionalOrders(w, r)
+	case http.MethodDelete:
+		s.handleCancelConditionalOrder(w, r)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (s *Server) handleSubmitConditionalOrder(w http.ResponseWriter, r *http.Request) {
+	var req SubmitConditionalOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if req.AccountId == "" || req.MarketId == "" || req.Quantity <= 0 || req.TriggerPrice <= 0 {
+		writeError(w, http.StatusBadRequest, "account_id, market_id, quantity, trigger_price required")
+		return
+	}
+	side := clob.OrderSideBuy
+	if strings.EqualFold(req.Side, "SELL") {
+		side = clob.OrderSideSell
+	}
+	orderType := clob.OrderTypeMarket
+	if strings.EqualFold(req.OrderType, "LIMIT") {
+		orderType = clob.OrderTypeLimit
+	}
+	triggerCond := clob.TriggerGTE
+	if strings.EqualFold(req.TriggerCondition, "LTE") {
+		triggerCond = clob.TriggerLTE
+	}
+	height := s.node.CurrentHeight()
+	expireAt := height + req.ExpireAfterBlocks
+	if req.ExpireAfterBlocks <= 0 {
+		expireAt = height + 3_600
+	}
+	o := clob.ConditionalOrder{
+		OrderId:           newOrderId(),
+		AccountId:         req.AccountId,
+		SessionId:         req.SessionId,
+		MarketId:          req.MarketId,
+		Side:              side,
+		OrderType:         orderType,
+		Price:             req.Price,
+		Quantity:          req.Quantity,
+		TriggerPrice:      req.TriggerPrice,
+		TriggerCondition:  triggerCond,
+		ReduceOnly:        req.ReduceOnly,
+		ExpireBlockHeight: expireAt,
+		Status:            clob.OrderStatusOpen,
+	}
+	if err := s.node.SubmitConditionalOrder(o); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, conditionalOrderToResponse(o))
+}
+
+func (s *Server) handleGetConditionalOrders(w http.ResponseWriter, r *http.Request) {
+	accountId := pathSuffix(r.URL.Path, "/conditional-orders/")
+	if accountId == "" {
+		writeError(w, http.StatusBadRequest, "accountId required")
+		return
+	}
+	orders := s.node.AllConditionalOrdersForAccount(accountId)
+	resp := make([]ConditionalOrderResponse, len(orders))
+	for i, o := range orders {
+		resp[i] = conditionalOrderToResponse(o)
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleCancelConditionalOrder(w http.ResponseWriter, r *http.Request) {
+	orderId := pathSuffix(r.URL.Path, "/conditional-orders/")
+	if orderId == "" {
+		writeError(w, http.StatusBadRequest, "orderId required")
+		return
+	}
+	accountId := r.URL.Query().Get("account_id")
+	if accountId == "" {
+		writeError(w, http.StatusBadRequest, "account_id query param required")
+		return
+	}
+	if err := s.node.CancelConditionalOrder(orderId, accountId); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"order_id": orderId, "status": "cancelled"})
+}
+
+func conditionalOrderToResponse(o clob.ConditionalOrder) ConditionalOrderResponse {
+	return ConditionalOrderResponse{
+		OrderId:            o.OrderId,
+		AccountId:          o.AccountId,
+		MarketId:           o.MarketId,
+		Side:               string(o.Side),
+		OrderType:          string(o.OrderType),
+		Price:              o.Price,
+		Quantity:           o.Quantity,
+		TriggerPrice:       o.TriggerPrice,
+		TriggerCondition:   string(o.TriggerCondition),
+		ReduceOnly:         o.ReduceOnly,
+		Status:             string(o.Status),
+		ExpireBlockHeight:  o.ExpireBlockHeight,
+		CreatedBlockHeight: o.CreatedBlockHeight,
+	}
+}
+
+// newOrderId generates a random order ID using crypto/rand.
+func newOrderId() string {
+	b := make([]byte, 8)
+	if _, err := cryptoRand.Read(b); err != nil {
+		return "cond-0000"
+	}
+	return fmt.Sprintf("cond-%x", b)
 }

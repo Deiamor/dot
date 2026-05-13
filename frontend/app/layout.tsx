@@ -53,6 +53,12 @@ export default function RootLayout({
               >
                 Portfolio
               </Link>
+              <Link
+                href="/points"
+                className="px-3 py-1.5 text-sm text-[#808080] hover:text-[#e8e8e8] rounded-md hover:bg-[#161616] transition-colors"
+              >
+                Points
+              </Link>
             </div>
           </div>
           <WalletConnect />
