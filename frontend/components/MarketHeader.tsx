@@ -6,7 +6,12 @@ import { usePathname } from 'next/navigation'
 import type { Market, MarkPriceResponse } from '@/lib/api'
 import clsx from 'clsx'
 
-const QUICK_MARKETS = ['BTC-USDC-PERP', 'ETH-USDC-PERP', 'BTC-USDC', 'ETH-USDC']
+const QUICK_MARKETS = [
+  'BTC-USDC-PERP', 'ETH-USDC-PERP',
+  'BTC-USDT-PERP', 'ETH-USDT-PERP',
+  'BTC-USDC', 'ETH-USDC',
+  'BTC-USDT', 'ETH-USDT',
+]
 
 export default function MarketHeader({ marketId }: { marketId: string }) {
   const [markPrice, setMarkPrice] = useState<MarkPriceResponse | null>(null)

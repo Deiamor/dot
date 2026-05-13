@@ -6,20 +6,15 @@
   "registered_assets": [
     { "asset_id": "BTC",  "symbol": "BTC",  "decimals": 8 },
     { "asset_id": "USDC", "symbol": "USDC", "decimals": 6 },
+    { "asset_id": "USDT", "symbol": "USDT", "decimals": 6 },
     { "asset_id": "ETH",  "symbol": "ETH",  "decimals": 18 },
     { "asset_id": "FAIR", "symbol": "FAIR", "decimals": 6 }
   ],
   "registered_markets": [
-    {
-      "market_id": "BTC-USDC",
-      "type": "SPOT",
-      "status": "ACTIVE"
-    },
-    {
-      "market_id": "ETH-USDC",
-      "type": "SPOT",
-      "status": "ACTIVE"
-    },
+    { "market_id": "BTC-USDC", "type": "SPOT", "status": "ACTIVE" },
+    { "market_id": "ETH-USDC", "type": "SPOT", "status": "ACTIVE" },
+    { "market_id": "BTC-USDT", "type": "SPOT", "status": "ACTIVE" },
+    { "market_id": "ETH-USDT", "type": "SPOT", "status": "ACTIVE" },
     {
       "market_id": "BTC-USDC-PERP",
       "type": "PERP",
@@ -43,6 +38,30 @@
         "funding_interval_blocks": 200,
         "max_funding_rate_bps": 100
       }
+    },
+    {
+      "market_id": "BTC-USDT-PERP",
+      "type": "PERP",
+      "status": "ACTIVE",
+      "perp_config": {
+        "initial_margin_bps": 1000,
+        "maintenance_margin_bps": 500,
+        "max_leverage": 20,
+        "funding_interval_blocks": 200,
+        "max_funding_rate_bps": 100
+      }
+    },
+    {
+      "market_id": "ETH-USDT-PERP",
+      "type": "PERP",
+      "status": "ACTIVE",
+      "perp_config": {
+        "initial_margin_bps": 1000,
+        "maintenance_margin_bps": 500,
+        "max_leverage": 20,
+        "funding_interval_blocks": 200,
+        "max_funding_rate_bps": 100
+      }
     }
   ],
   "faucet": {
@@ -50,7 +69,8 @@
     "cooldown_seconds": 86400,
     "assets": [
       { "asset_id": "USDC", "amount": 10000000000 },
-      { "asset_id": "BTC",  "amount": 100000000  },
+      { "asset_id": "USDT", "amount": 10000000000 },
+      { "asset_id": "BTC",  "amount": 100000000   },
       { "asset_id": "ETH",  "amount": 1000000000000000000 }
     ]
   },

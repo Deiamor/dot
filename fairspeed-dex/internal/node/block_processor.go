@@ -291,6 +291,7 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 			BlockHeight: blockHeight,
 		})
 		markPrice := p.AppState.GetMarkPrice(payload.MarketId)
+		p.AppState.RecordPricePoint(payload.MarketId, markPrice, blockHeight)
 		p.EventBus.Publish(state.Event{
 			Type:        state.EventMarkPriceUpdated,
 			BlockHeight: blockHeight,

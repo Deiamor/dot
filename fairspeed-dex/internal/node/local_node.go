@@ -434,6 +434,11 @@ func (n *LocalNode) GetLastFundingBlock(marketId string) int64 {
 	return n.AppState.GetLastFundingBlock(marketId)
 }
 
+// GetPriceHistory returns recent mark-price observations for a market (up to 500 points).
+func (n *LocalNode) GetPriceHistory(marketId string) []state.PricePoint {
+	return n.AppState.GetPriceHistory(marketId)
+}
+
 // SetIndexPrice configures the off-chain index price for funding rate calculation.
 // When set, it overrides the fallback of using the oracle mark price as index.
 func (n *LocalNode) SetIndexPrice(marketId string, price int64) {

@@ -410,3 +410,12 @@ type TGEAllocatedPayload struct {
 	Points     int64
 }
 
+// PricePoint is one mark-price observation stored in price history.
+type PricePoint struct {
+	BlockHeight int64 `json:"block_height"`
+	Price       int64 `json:"price"`
+	// UnixSec is a Unix timestamp approximation for chart rendering.
+	// Computed as a baseline + blockHeight * blockIntervalSec.
+	UnixSec int64 `json:"time"`
+}
+

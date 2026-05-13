@@ -16,4 +16,6 @@ func NewAsset(id, symbol string, decimals int) Asset {
 var (
 	BTC  = NewAsset("BTC", "BTC", 8)
 	USDC = NewAsset("USDC", "USDC", 6)
+	USDT = NewAsset("USDT", "USDT", 6)
+	ETH  = NewAsset("ETH", "ETH", 18)
 )

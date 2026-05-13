@@ -37,8 +37,11 @@ export interface Position {
   market_id: string
   net_quantity: number
   avg_entry_price: number
-  unrealized_pnl: number
   allocated_margin: number
+  unrealized_pnl: number
+  mark_price: number
+  liquidation_price: number
+  side: string
 }
 
 export interface MarkPriceResponse {

@@ -929,3 +929,58 @@ func newOrderId() string {
 	}
 	return fmt.Sprintf("cond-%x", b)
 }
+
+// handlePriceHistory handles GET /markprice/{marketId}/history
+func (s *Server) handlePriceHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	// path: /markprice/{marketId}/history
+	rest := pathSuffix(r.URL.Path, "/markprice/")
+	marketId := strings.TrimSuffix(rest, "/history")
+	if marketId == "" || marketId == rest {
+		writeError(w, http.StatusBadRequest, "path must be /markprice/{marketId}/history")
+		return
+	}
+	history := s.node.GetPriceHistory(marketId)
+	writeJSON(w, http.StatusOK, history)
+}
+
+// handleHealth handles GET /health
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"height": s.node.CurrentHeight(),
+	})
+}
+
+// handleMetrics handles GET /metrics — returns key node statistics.
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	markets := s.node.AppState.AllPerpMarkets()
+	as := s.node.AppState
+	writeJSON(w, http.StatusOK, map[string]any{
+		"block_height":   s.node.CurrentHeight(),
+		"market_count":   len(as.Markets),
+		"account_count":  len(as.Accounts),
+		"perp_markets":   len(markets),
+		"validator_count": len(as.Validators),
+	})
+}
+
+// handleMarkPriceRouter routes /markprice/{id} and /markprice/{id}/history.
+func (s *Server) handleMarkPriceRouter(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/history") {
+		s.handlePriceHistory(w, r)
+		return
+	}
+	s.handleGetMarkPrice(w, r)
+}

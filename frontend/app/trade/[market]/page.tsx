@@ -5,6 +5,7 @@ import OrderForm from '@/components/OrderForm'
 import RecentTrades from '@/components/RecentTrades'
 import BottomPanel from '@/components/BottomPanel'
 import MarketHeader from '@/components/MarketHeader'
+import PriceChart from '@/components/PriceChart'
 
 export default async function TradePage({
   params,
@@ -30,13 +31,11 @@ export default async function TradePage({
 
         {/* Center: Chart + Recent Trades */}
         <div className="flex-1 flex flex-col overflow-hidden border-r border-[#2a2a2a]">
-          {/* Chart area (placeholder) */}
-          <div className="flex-1 bg-[#0d0d0d] flex items-center justify-center border-b border-[#2a2a2a]">
-            <div className="text-center text-[#808080]">
-              <div className="text-4xl mb-2">📈</div>
-              <div className="text-sm">Chart coming soon</div>
-              <div className="text-xs mt-1">{marketId}</div>
-            </div>
+          {/* Price Chart */}
+          <div className="flex-1 bg-[#0d0d0d] border-b border-[#2a2a2a] overflow-hidden">
+            <Suspense fallback={<div className="w-full h-full flex items-center justify-center text-[#808080] text-sm">Loading chart…</div>}>
+              <PriceChart marketId={marketId} />
+            </Suspense>
           </div>
           {/* Recent Trades */}
           <div className="h-64 overflow-hidden">

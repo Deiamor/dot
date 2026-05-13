@@ -61,6 +61,7 @@ type AppState struct {
 	VestingSchedules     map[string]map[string]*token.VestingSchedule       // accountId → assetId → schedule
 	PointsData          map[string]*points.AccountPoints                  // accountId → points
 	PointsOrder         []string                                          // registration order for early-bird
+	PriceHistory        map[string][]PricePoint                           // marketId → recent price points (ring, cap 500)
 	BlockHeight         int64
 }
 
@@ -91,6 +92,7 @@ func NewAppState() *AppState {
 		VestingSchedules:  make(map[string]map[string]*token.VestingSchedule),
 		PointsData:        make(map[string]*points.AccountPoints),
 		PointsOrder:       []string{},
+		PriceHistory:      make(map[string][]PricePoint),
 	}
 }
 
@@ -1252,4 +1254,35 @@ func (s *AppState) TotalAccounts() int64 {
 	s.globalMu.RLock()
 	defer s.globalMu.RUnlock()
 	return int64(len(s.PointsOrder))
+}
+
+const maxPriceHistoryLen = 500
+
+// RecordPricePoint appends a mark-price observation for a market.
+// The ring buffer is capped at maxPriceHistoryLen entries.
+func (s *AppState) RecordPricePoint(marketId string, price int64, blockHeight int64) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	// Approximate Unix timestamp: 500 ms blocks → 2 blocks/sec.
+	unixSec := int64(1_700_000_000) + blockHeight/2
+	pp := PricePoint{BlockHeight: blockHeight, Price: price, UnixSec: unixSec}
+	hist := s.PriceHistory[marketId]
+	hist = append(hist, pp)
+	if len(hist) > maxPriceHistoryLen {
+		hist = hist[len(hist)-maxPriceHistoryLen:]
+	}
+	s.PriceHistory[marketId] = hist
+}
+
+// GetPriceHistory returns a copy of the recent mark-price history for a market.
+func (s *AppState) GetPriceHistory(marketId string) []PricePoint {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	src := s.PriceHistory[marketId]
+	if len(src) == 0 {
+		return nil
+	}
+	cp := make([]PricePoint, len(src))
+	copy(cp, src)
+	return cp
 }
