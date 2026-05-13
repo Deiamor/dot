@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -142,6 +143,10 @@ func (e *Engine) doTick(goCtx context.Context) error {
 
 	fsmCtx, err := e.buildContext(goCtx)
 	if err != nil {
+		if errors.Is(err, exchange.ErrTerminal) {
+			e.log.Info("exchange signalled terminal (backtest complete)", "reason", err)
+			return fmt.Errorf("terminal: %w", context.Canceled)
+		}
 		e.log.Warn("context refresh failed", "err", err)
 		return nil // transient; keep running
 	}

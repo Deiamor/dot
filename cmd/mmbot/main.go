@@ -1,11 +1,17 @@
-// Command mmbot runs the funding-aware market making strategy against Binance
-// USDT-M Perpetual Futures.
+// Command mmbot runs the funding-aware market making strategy.
+//
+// Modes:
+//
+//	live    — real orders on Binance (requires BINANCE_API_KEY + BINANCE_SECRET_KEY)
+//	paper   — live market data, virtual account, no real orders
+//	backtest — replay downloaded kline data offline
 //
 // Usage:
 //
-//	mmbot [flags]
+//	mmbot --mode paper --dashboard --symbol BTCUSDT
+//	mmbot --mode backtest --dataset ./data/BTCUSDT_5m_20240101_20240201.json
 //
-// Required environment variables for live trading:
+// Environment variables (live/paper modes):
 //
 //	BINANCE_API_KEY    Binance API key
 //	BINANCE_SECRET_KEY Binance secret key
@@ -20,53 +26,97 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/deiamor/perp-strategy-engine/dashboard"
 	"github.com/deiamor/perp-strategy-engine/fsm/core"
+	"github.com/deiamor/perp-strategy-engine/fsm/exchange"
+	"github.com/deiamor/perp-strategy-engine/fsm/exchange/backtest"
 	"github.com/deiamor/perp-strategy-engine/fsm/exchange/binance"
-	engine "github.com/deiamor/perp-strategy-engine/mm/engine"
+	"github.com/deiamor/perp-strategy-engine/fsm/exchange/paper"
+	mmengine "github.com/deiamor/perp-strategy-engine/mm/engine"
 	"github.com/deiamor/perp-strategy-engine/mm/model"
 )
 
 func main() {
-	symbol      := flag.String("symbol", "BTCUSDT", "Binance futures symbol (e.g. BTCUSDT, ETHUSDT)")
+	mode         := flag.String("mode", "paper", "trading mode: live | paper | backtest")
+	symbol       := flag.String("symbol", "BTCUSDT", "Binance futures symbol")
+	dataset      := flag.String("dataset", "", "path to kline JSON file (backtest mode)")
+	dashEnabled  := flag.Bool("dashboard", true, "start the web dashboard")
+	dashAddr     := flag.String("dashboard-addr", ":8080", "dashboard listen address")
+	dataDir      := flag.String("data-dir", "./data", "directory for downloaded kline files")
+	testnet      := flag.Bool("testnet", false, "use Binance Futures testnet")
+	initBalance  := flag.Float64("initial-balance", 10_000, "initial USDT balance (paper/backtest)")
+	slippageBps  := flag.Float64("slippage-bps", 1.0, "fill slippage in bps (paper mode)")
+
 	gamma        := flag.Float64("gamma", 0.1, "risk aversion coefficient")
 	kappa        := flag.Float64("kappa", 1.5, "order arrival intensity (fills/sec)")
 	sigma        := flag.Float64("sigma", 0.80, "initial realised volatility (annualised)")
 	horizon      := flag.Float64("horizon", 1.0/365, "strategy horizon in years")
 	alpha        := flag.Float64("alpha", 1.0, "funding sensitivity [0,1]")
-	fundingEpoch := flag.Float64("funding-epoch", 1.0/365/3, "funding epoch in years (8h = 1/365/3)")
+	fundingEpoch := flag.Float64("funding-epoch", 1.0/365/3, "funding epoch in years")
 	maxInv       := flag.Float64("max-inventory", 0.1, "max inventory in base units")
 	minSpread    := flag.Float64("min-spread", 0.0001, "min half-spread as fraction of mid")
 	orderSize    := flag.Float64("order-size", 0.001, "base order size in base units")
-	invThresh    := flag.Float64("inventory-threshold", 0.5, "skewing threshold (fraction of max-inventory)")
-	pauseFunding := flag.Float64("pause-funding", 2.0, "pause when funding cost / spread revenue > this")
-	pauseVol     := flag.Float64("pause-vol", 2.0, "pause when realised vol / model vol > this")
-	volWindow    := flag.Int("vol-window", 100, "rolling window size for vol estimator (ticks)")
+	invThresh    := flag.Float64("inventory-threshold", 0.5, "skewing threshold")
+	pauseFunding := flag.Float64("pause-funding", 2.0, "funding pause multiplier")
+	pauseVol     := flag.Float64("pause-vol", 2.0, "volatility pause multiplier")
+	volWindow    := flag.Int("vol-window", 100, "vol estimator rolling window (ticks)")
 	interval     := flag.Duration("interval", 5*time.Second, "tick interval")
-	testnet      := flag.Bool("testnet", false, "use Binance Futures testnet")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	opts := []binance.Option{}
-	if *testnet {
-		opts = append(opts, binance.WithTestnet())
-		log.Info("using Binance Futures testnet")
+	// ── Build exchange ─────────────────────────────────────────────────────────
+	var (
+		ex        exchange.Exchange
+		collector = dashboard.NewCollector()
+	)
+
+	switch *mode {
+	case "live":
+		opts := buildBinanceOpts(*testnet)
+		ex = binance.New(opts...)
+		log.Info("mode: LIVE (real orders)", "symbol", *symbol)
+
+	case "paper":
+		opts := buildBinanceOpts(*testnet)
+		realEx := binance.New(opts...)
+		pex := paper.New(paper.Config{
+			InitialBalance: *initBalance,
+			SlippageBps:    *slippageBps,
+			TakerFeeBps:    4,
+			MakerFeeBps:    2,
+		}, realEx)
+		go collector.Ingest(pex.Events())
+		ex = pex
+		log.Info("mode: PAPER", "symbol", *symbol, "balance", *initBalance)
+
+	case "backtest":
+		if *dataset == "" {
+			log.Error("--dataset is required for backtest mode")
+			os.Exit(1)
+		}
+		snaps, err := backtest.LoadSnapshots(*dataset, *symbol)
+		if err != nil {
+			log.Error("load dataset", "err", err)
+			os.Exit(1)
+		}
+		bex := backtest.New(backtest.Config{
+			InitialBalance: *initBalance,
+			TakerFeeBps:    4,
+			MakerFeeBps:    2,
+		}, snaps)
+		go collector.Ingest(bex.Events())
+		ex = bex
+		log.Info("mode: BACKTEST", "dataset", *dataset, "snapshots", len(snaps))
+
+	default:
+		log.Error("unknown mode", "mode", *mode)
+		os.Exit(1)
 	}
 
-	apiKey := os.Getenv("BINANCE_API_KEY")
-	secretKey := os.Getenv("BINANCE_SECRET_KEY")
-	if apiKey != "" && secretKey != "" {
-		opts = append(opts, binance.WithKey(apiKey, secretKey))
-		log.Info("order signing enabled")
-	} else {
-		log.Warn("BINANCE_API_KEY / BINANCE_SECRET_KEY not set — read-only mode (orders will fail)")
-	}
-
-	ex := binance.New(opts...)
-
+	// ── Build strategy + engine ────────────────────────────────────────────────
 	kill := make(chan struct{})
-
-	cfg := engine.Config{
+	cfg := mmengine.Config{
 		Model: model.Params{
 			Gamma:        *gamma,
 			Kappa:        *kappa,
@@ -85,18 +135,24 @@ func main() {
 		TickInterval:          *interval,
 	}
 
-	strategy, err := engine.New(cfg, kill)
+	strategy, err := mmengine.New(cfg, kill)
 	if err != nil {
-		log.Error("failed to create strategy", "err", err)
+		log.Error("create strategy", "err", err)
 		os.Exit(1)
 	}
 
-	eng, err := core.NewEngine(strategy, ex, *symbol, *interval, nil, log)
+	tickInterval := *interval
+	if *mode == "backtest" {
+		tickInterval = time.Nanosecond // run as fast as possible
+	}
+
+	eng, err := core.NewEngine(strategy, ex, *symbol, tickInterval, nil, log)
 	if err != nil {
-		log.Error("failed to create engine", "err", err)
+		log.Error("create engine", "err", err)
 		os.Exit(1)
 	}
 
+	// ── Context + signals ──────────────────────────────────────────────────────
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -110,8 +166,49 @@ func main() {
 		cancel()
 	}()
 
-	log.Info("mmbot started", "symbol", *symbol, "interval", *interval)
+	// ── Dashboard ──────────────────────────────────────────────────────────────
+	if *dashEnabled {
+		srv := dashboard.NewServer(collector, *dataDir, log)
+		go func() {
+			if err := srv.Run(ctx, *dashAddr); err != nil {
+				log.Error("dashboard error", "err", err)
+			}
+		}()
+		log.Info("dashboard started", "url", "http://localhost"+*dashAddr)
+	}
+
+	// ── Run ────────────────────────────────────────────────────────────────────
+	log.Info("mmbot started", "symbol", *symbol, "mode", *mode)
 	if err := eng.Run(ctx); err != nil {
 		log.Info("engine stopped", "reason", err)
 	}
+
+	if *mode == "paper" {
+		if pex, ok := ex.(*paper.Exchange); ok {
+			log.Info("paper trading summary", "stats", pex.Stats())
+		}
+	}
+	if *mode == "backtest" {
+		if bex, ok := ex.(*backtest.Exchange); ok {
+			s := bex.Stats()
+			log.Info("backtest complete",
+				"netPnl", s.NetPnL,
+				"returnPct", s.ReturnPct(),
+				"fills", s.NumFills,
+				"winRate", s.WinRate,
+			)
+		}
+	}
+}
+
+func buildBinanceOpts(testnet bool) []binance.Option {
+	var opts []binance.Option
+	if testnet {
+		opts = append(opts, binance.WithTestnet())
+	}
+	if key := os.Getenv("BINANCE_API_KEY"); key != "" {
+		secret := os.Getenv("BINANCE_SECRET_KEY")
+		opts = append(opts, binance.WithKey(key, secret))
+	}
+	return opts
 }

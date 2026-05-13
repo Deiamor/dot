@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MM Bot Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>MM Bot <span>perp-strategy-engine</span></h1>
+    <div id="conn-dot" title="SSE connection"></div>
+    <div id="state-badge">IDLE</div>
+  </header>
+
+  <nav>
+    <button class="active" data-tab="live">Live / Paper</button>
+    <button data-tab="backtest">Backtest</button>
+    <button data-tab="data">Data</button>
+  </nav>
+
+  <main>
+    <!-- ── LIVE / PAPER TAB ─────────────────────────────────────── -->
+    <div id="tab-live" class="tab-panel active">
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="label">Equity</div>
+          <div id="m-equity" class="value">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Unrealised PnL</div>
+          <div id="m-upnl" class="value">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Position</div>
+          <div id="m-pos" class="value">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Mid Price</div>
+          <div id="m-mid" class="value">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Spread (bps)</div>
+          <div id="m-spread" class="value">—</div>
+        </div>
+        <div class="metric-card">
+          <div class="label">Funding Rate</div>
+          <div id="m-funding" class="value">—</div>
+        </div>
+      </div>
+
+      <div class="chart-row">
+        <div class="chart-card chart-full">
+          <h3>Equity Curve</h3>
+          <canvas id="chart-equity" height="120"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-row">
+        <div class="chart-card">
+          <h3>Mid Price</h3>
+          <canvas id="chart-price" height="140"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Position</h3>
+          <canvas id="chart-position" height="140"></canvas>
+        </div>
+      </div>
+
+      <div class="fills-card">
+        <h3>Recent Fills</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Symbol</th>
+              <th>Side</th>
+              <th>Price</th>
+              <th>Qty</th>
+              <th>Fee</th>
+              <th>Realised PnL</th>
+            </tr>
+          </thead>
+          <tbody id="fills-body">
+            <tr><td colspan="7" style="text-align:center;color:var(--text2);padding:24px">No fills yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── BACKTEST TAB ─────────────────────────────────────────── -->
+    <div id="tab-backtest" class="tab-panel">
+      <div class="form-card">
+        <h3>Backtest Configuration</h3>
+        <div class="form-grid">
+          <div class="field">
+            <label>Dataset</label>
+            <select id="bt-dataset"><option value="">— select dataset —</option></select>
+          </div>
+          <div class="field">
+            <label>Initial Balance (USDT)</label>
+            <input id="bt-balance" type="number" value="10000" min="1">
+          </div>
+          <div class="field">
+            <label>Gamma (risk aversion)</label>
+            <input id="bt-gamma" type="number" value="0.1" step="0.01" min="0">
+          </div>
+          <div class="field">
+            <label>Kappa (fill rate/s)</label>
+            <input id="bt-kappa" type="number" value="1.5" step="0.1" min="0">
+          </div>
+          <div class="field">
+            <label>Sigma (annual vol)</label>
+            <input id="bt-sigma" type="number" value="0.80" step="0.01" min="0">
+          </div>
+          <div class="field">
+            <label>Alpha (funding sensitivity)</label>
+            <input id="bt-alpha" type="number" value="1.0" step="0.1" min="0" max="1">
+          </div>
+          <div class="field">
+            <label>Order Size (base)</label>
+            <input id="bt-ordersize" type="number" value="0.001" step="0.0001" min="0">
+          </div>
+          <div class="field">
+            <label>Max Inventory (base)</label>
+            <input id="bt-maxinv" type="number" value="0.1" step="0.01" min="0">
+          </div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px;align-items:center">
+          <button id="btn-run-bt" class="btn btn-primary" disabled>▶ Run Backtest</button>
+          <span id="bt-status" style="color:var(--text2);font-size:13px"></span>
+        </div>
+      </div>
+
+      <div id="bt-results" style="display:none">
+        <div class="form-card">
+          <h3>Results</h3>
+          <div class="results-grid">
+            <div class="result-card">
+              <div class="r-label">Net PnL</div>
+              <div id="r-pnl" class="r-value">—</div>
+            </div>
+            <div class="result-card">
+              <div class="r-label">Return %</div>
+              <div id="r-return" class="r-value">—</div>
+            </div>
+            <div class="result-card">
+              <div class="r-label">Total Fills</div>
+              <div id="r-fills" class="r-value">—</div>
+            </div>
+            <div class="result-card">
+              <div class="r-label">Win Rate</div>
+              <div id="r-winrate" class="r-value">—</div>
+            </div>
+            <div class="result-card">
+              <div class="r-label">Total Fees</div>
+              <div id="r-fees" class="r-value">—</div>
+            </div>
+            <div class="result-card">
+              <div class="r-label">Final Equity</div>
+              <div id="r-equity" class="r-value">—</div>
+            </div>
+          </div>
+        </div>
+        <div class="chart-card">
+          <h3>Backtest Equity Curve</h3>
+          <canvas id="chart-bt-equity" height="140"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DATA TAB ─────────────────────────────────────────────── -->
+    <div id="tab-data" class="tab-panel">
+      <div class="form-card">
+        <h3>Download Kline Data from Binance</h3>
+        <p style="color:var(--text2);font-size:13px;margin-bottom:16px">
+          Download historical candlestick data to your local <code>./data/</code> folder for backtesting.
+          Binance USDT-M Perpetual Futures data is used.
+        </p>
+        <div class="form-grid">
+          <div class="field">
+            <label>Symbol</label>
+            <input id="dl-symbol" type="text" placeholder="BTCUSDT" value="BTCUSDT">
+          </div>
+          <div class="field">
+            <label>Interval</label>
+            <select id="dl-interval">
+              <option value="1m">1 minute</option>
+              <option value="5m" selected>5 minutes</option>
+              <option value="15m">15 minutes</option>
+              <option value="30m">30 minutes</option>
+              <option value="1h">1 hour</option>
+              <option value="4h">4 hours</option>
+              <option value="1d">1 day</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Start Date</label>
+            <input id="dl-start" type="date">
+          </div>
+          <div class="field">
+            <label>End Date</label>
+            <input id="dl-end" type="date">
+          </div>
+        </div>
+        <div style="margin-top:16px">
+          <button id="btn-download" class="btn btn-primary">⬇ Download</button>
+        </div>
+        <div id="dl-progress" class="progress-wrap" style="display:none">
+          <div class="progress-bar"><div id="dl-fill" class="progress-fill" style="width:0%"></div></div>
+          <div id="dl-label" class="progress-label">Starting download…</div>
+        </div>
+      </div>
+
+      <div class="form-card">
+        <h3>Available Datasets</h3>
+        <div id="dataset-list" class="dataset-list">
+          <div style="color:var(--text2);font-size:13px">No datasets downloaded yet.</div>
+        </div>
+        <button id="btn-refresh-datasets" class="btn btn-secondary" style="margin-top:14px">↺ Refresh</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

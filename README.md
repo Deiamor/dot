@@ -11,6 +11,10 @@ Two independent libraries in one monorepo:
 
 **Supported venues**: Binance USDT-M Perpetual Futures (full — market data + signed execution), HyperLiquid (market data only)
 
+**Execution modes**: Live trading, Paper trading (virtual account), Backtesting (offline kline replay)
+
+**Dashboard**: real-time web UI — equity curve, P&L, fills, FSM state, kline downloader, backtest runner
+
 ---
 
 ## Why this exists
@@ -222,23 +226,59 @@ m.UpdateSigma(sigma)
 
 ## Running the MM bot
 
+### Paper trading (no keys needed — good for testing)
+
+```bash
+go run ./cmd/mmbot --mode paper --symbol BTCUSDT --dashboard
+# Dashboard: http://localhost:8080
+```
+
+### Backtesting
+
+```bash
+# Step 1: download data from the dashboard (http://localhost:8080 → Data tab)
+# or use the CLI after starting with --dashboard
+
+# Step 2: run backtest
+go run ./cmd/mmbot --mode backtest --dataset ./data/BTCUSDT_5m_20240101_20240201.json
+```
+
+### Live trading
+
 ```bash
 export BINANCE_API_KEY=your_api_key
 export BINANCE_SECRET_KEY=your_secret_key
 
 go run ./cmd/mmbot \
+  --mode live \
   --symbol BTCUSDT \
   --gamma 0.1 \
   --kappa 1.5 \
   --sigma 0.80 \
-  --horizon 0.00274 \
-  --alpha 1.0 \
   --order-size 0.001 \
   --interval 5s \
-  --testnet
+  --dashboard
 ```
 
-Omit `BINANCE_API_KEY` / `BINANCE_SECRET_KEY` for read-only mode (market data only, orders will error).
+### All flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--mode` | `paper` | `live` \| `paper` \| `backtest` |
+| `--symbol` | `BTCUSDT` | Binance futures symbol |
+| `--dataset` | — | Kline JSON file path (backtest only) |
+| `--initial-balance` | `10000` | Starting USDT (paper/backtest) |
+| `--dashboard` | `true` | Enable web dashboard |
+| `--dashboard-addr` | `:8080` | Dashboard listen address |
+| `--data-dir` | `./data` | Local kline storage directory |
+| `--testnet` | `false` | Use Binance testnet |
+| `--interval` | `5s` | Tick interval (live/paper) |
+| `--gamma` | `0.1` | Risk aversion |
+| `--kappa` | `1.5` | Order arrival intensity |
+| `--sigma` | `0.80` | Initial volatility (annualised) |
+| `--alpha` | `1.0` | Funding sensitivity |
+| `--order-size` | `0.001` | Base order size |
+| `--max-inventory` | `0.1` | Max inventory (base units) |
 
 ---
 
@@ -246,16 +286,25 @@ Omit `BINANCE_API_KEY` / `BINANCE_SECRET_KEY` for read-only mode (market data on
 
 ```
 fsm/
-  core/           Engine, Strategy, State, Transition, Context
-  exchange/       Exchange interface + types (Order, Position, MarketSnapshot …)
-    binance/      Binance USDT-M Futures connector (full: market data + signed execution)
-    hyperliquid/  HyperLiquid connector (market data only; signing TODO)
-  primitives/     Ready-to-use strategies (TWAP)
+  core/             Engine, Strategy, State, Transition, Context
+  exchange/         Exchange interface + types + ErrTerminal + TradingEvent
+    binance/        Binance USDT-M Futures (full: market data + signed execution)
+    paper/          Paper trading exchange (virtual account, live market data)
+    backtest/       Backtest exchange (kline replay) + JSON loader
+    hyperliquid/    HyperLiquid connector (market data only)
+  primitives/       Ready-to-use strategies (TWAP)
 mm/
-  model/          Avellaneda-Stoikov + funding rate math, VolatilityEstimator
-  engine/         MakerStrategy FSM
+  model/            Avellaneda-Stoikov + funding rate math, VolatilityEstimator
+  engine/           MakerStrategy FSM
+dashboard/
+  server.go         HTTP server + REST API + SSE stream
+  collector.go      TradingEvent fan-in, SSE broadcast hub
+  downloader.go     Binance kline downloader (chunked, with progress)
+  backtest_runner.go Synchronous backtest runner (called from HTTP handler)
+  static/           Chart.js frontend (equity curve, fills, FSM state, data download UI)
 cmd/
-  mmbot/          Runnable market making bot (targets Binance)
+  mmbot/            Runnable bot (--mode live|paper|backtest, --dashboard)
+data/               Downloaded kline JSON files (gitignored)
 ```
 
 ---
@@ -269,11 +318,21 @@ go test -race ./...
 
 ---
 
+## Dashboard
+
+Open `http://localhost:8080` after starting with `--dashboard`.
+
+| Tab | Features |
+|-----|---------|
+| **Live / Paper** | Real-time equity curve, mid price chart, position chart, fill history table, FSM state badge |
+| **Backtest** | Dataset selector, model parameter inputs, run button, results (PnL, return %, win rate, equity curve) |
+| **Data** | Symbol / interval / date range selector, download button with progress bar, available datasets list |
+
 ## Roadmap
 
 - [ ] HyperLiquid EIP-712 order signing
 - [ ] dYdX v4 connector
-- [ ] Backtester (replay historical snapshots through the FSM)
-- [ ] WebSocket market data feed (replace polling)
+- [ ] WebSocket market data feed (replace REST polling)
+- [ ] Sharpe ratio + max drawdown in backtest results
 - [ ] VWAP primitive
 - [ ] Grid strategy primitive
