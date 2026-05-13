@@ -152,7 +152,7 @@ export async function setReferrer(accountId: string, referrerId: string): Promis
 }
 
 export async function requestFaucet(accountId: string, asset?: string): Promise<unknown> {
-  const url = asset ? `${BASE}/faucet/${accountId}?asset=${asset}` : `${BASE}/faucet/${accountId}`
+  const url = asset ? `${BASE}/faucet/${accountId}?asset=${encodeURIComponent(asset)}` : `${BASE}/faucet/${accountId}`
   const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) throw new Error(`Faucet error: ${res.status}`)
   return res.json()

@@ -30,7 +30,13 @@ func CalcFundingRate(markPrice, indexPrice, maxRateBps int64) int64 {
 // FundingPayment computes the funding payment for one position.
 // Positive result = position owes payment (longs when rate > 0).
 // Negative result = position receives payment (shorts when rate > 0).
-// Formula: netQty * avgEntryPrice * rateBps / 10_000
+// Formula: (netQty * avgEntryPrice / 10_000) * rateBps
+// Division is performed before the second multiplication to avoid int64 overflow
+// on large positions.
 func FundingPayment(netQty, avgEntryPrice, rateBps int64) int64 {
-	return netQty * avgEntryPrice * rateBps / 10_000
+	if netQty == 0 || avgEntryPrice == 0 || rateBps == 0 {
+		return 0
+	}
+	notionalScaled := netQty * avgEntryPrice / 10_000
+	return notionalScaled * rateBps
 }

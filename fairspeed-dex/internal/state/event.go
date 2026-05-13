@@ -330,11 +330,14 @@ type ConditionalOrderSubmittedPayload struct {
 }
 
 // ConditionalOrderTriggeredPayload is emitted when a conditional order's condition is met.
+// Rejected is true when the resulting order was rejected (e.g. insufficient margin).
 type ConditionalOrderTriggeredPayload struct {
 	OrderId   string
 	AccountId string
 	MarketId  string
 	MarkPrice int64
+	Rejected  bool
+	RejectMsg string
 }
 
 // ConditionalOrderExpiredPayload is emitted when an order expires without triggering.

@@ -971,7 +971,7 @@ func (p *LocalBlockProcessor) checkAndLiquidate(blockHeight int64) {
 		}
 
 		unrealizedPnL := pos.UnrealizedPnL(markPrice)
-		maintenanceMargin := absQty * pos.AvgEntryPrice * cfg.MaintenanceMarginBps / 10_000
+		maintenanceMargin := (absQty * pos.AvgEntryPrice / 10_000) * cfg.MaintenanceMarginBps
 
 		// Healthy position: equity > maintenance margin.
 		equity := pos.AllocatedMargin + unrealizedPnL
@@ -1127,17 +1127,21 @@ func (p *LocalBlockProcessor) evaluateConditionalOrders(blockHeight int64) {
 				Signature:       co.Signature,
 				Status:          clob.OrderStatusOpen,
 			}
-			_ = p.processOrder(newOrder, co.Signature, blockHeight)
+			triggerPayload := state.ConditionalOrderTriggeredPayload{
+				OrderId:   co.OrderId,
+				AccountId: co.AccountId,
+				MarketId:  co.MarketId,
+				MarkPrice: markPrice,
+			}
+			if err := p.processOrder(newOrder, co.Signature, blockHeight); err != nil {
+				triggerPayload.Rejected = true
+				triggerPayload.RejectMsg = err.Error()
+			}
 
 			p.EventBus.Publish(state.Event{
 				Type:        state.EventConditionalOrderTriggered,
 				BlockHeight: blockHeight,
-				Payload: state.ConditionalOrderTriggeredPayload{
-					OrderId:   co.OrderId,
-					AccountId: co.AccountId,
-					MarketId:  co.MarketId,
-					MarkPrice: markPrice,
-				},
+				Payload:     triggerPayload,
 			})
 		}
 	}

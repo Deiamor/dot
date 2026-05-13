@@ -112,6 +112,9 @@ export default function PriceChart({ marketId }: Props) {
     return () => {
       observer.disconnect()
       if (timerRef.current) clearInterval(timerRef.current)
+      // Null out seriesRef first so any in-flight async fetch won't call update()
+      // on a destroyed series.
+      seriesRef.current = null
       chart.remove()
       chartRef.current = null
     }

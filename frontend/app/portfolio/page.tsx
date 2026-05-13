@@ -79,6 +79,7 @@ export default function PortfolioPage() {
   const [openOrders, setOpenOrders] = useState<OrderHistoryItem[]>([])
   const [orderHistory, setOrderHistory] = useState<OrderHistoryItem[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('positions')
   const [showModal, setShowModal] = useState(false)
   const [modalType, setModalType] = useState<'deposit' | 'withdraw'>('deposit')
@@ -88,6 +89,7 @@ export default function PortfolioPage() {
   useEffect(() => {
     if (!accountId) return
     setLoading(true)
+    setLoadError(null)
     import('@/lib/api').then(({ getBalances, getPositions, getOpenOrders, getOrderHistory }) => {
       Promise.all([getBalances(accountId), getPositions(accountId), getOpenOrders(accountId), getOrderHistory(accountId)])
         .then(([b, p, oo, oh]) => {
@@ -97,7 +99,10 @@ export default function PortfolioPage() {
           setOrderHistory(oh)
           setLoading(false)
         })
-        .catch(() => setLoading(false))
+        .catch((err: unknown) => {
+          setLoadError(err instanceof Error ? err.message : 'Failed to load portfolio data')
+          setLoading(false)
+        })
     })
   }, [accountId])
 
@@ -148,6 +153,12 @@ export default function PortfolioPage() {
           >
             Connect Wallet
           </button>
+        </div>
+      )}
+
+      {accountId && loadError && (
+        <div className="mb-4 px-4 py-3 bg-[#f0444b]/10 border border-[#f0444b]/30 rounded-xl text-sm text-[#f0444b]">
+          {loadError}
         </div>
       )}
 

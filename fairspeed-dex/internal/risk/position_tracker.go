@@ -49,7 +49,8 @@ func (p NetPosition) LiquidationPrice(maintenanceMarginBps int64) int64 {
 	if absQty < 0 {
 		absQty = -absQty
 	}
-	maintMargin := absQty * p.AvgEntryPrice * maintenanceMarginBps / 10_000
+	// Divide before the second multiplication to avoid int64 overflow on large positions.
+	maintMargin := (absQty * p.AvgEntryPrice / 10_000) * maintenanceMarginBps
 	margin := p.AllocatedMargin - maintMargin
 	if margin <= 0 {
 		return 0
