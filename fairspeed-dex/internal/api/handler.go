@@ -665,6 +665,68 @@ func (s *Server) handlePoints(w http.ResponseWriter, r *http.Request) {
 	s.handleGetPoints(w, r)
 }
 
+// handleIndexPrice routes POST /index-price and GET /index-price/{marketId}.
+func (s *Server) handleIndexPrice(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		s.handleSubmitIndexPrice(w, r)
+	case http.MethodGet:
+		s.handleGetIndexPrice(w, r)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (s *Server) handleSubmitIndexPrice(w http.ResponseWriter, r *http.Request) {
+	var req SubmitIndexPriceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if req.MarketId == "" || req.ValidatorId == "" || req.Price <= 0 {
+		writeError(w, http.StatusBadRequest, "market_id, validator_id, and price > 0 required")
+		return
+	}
+	if req.Price > maxNotional {
+		writeError(w, http.StatusBadRequest, "price exceeds maximum")
+		return
+	}
+	if err := s.node.SubmitIndexPrice(req.MarketId, req.ValidatorId, req.Price, req.Source); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"market_id":   req.MarketId,
+		"index_price": s.node.GetIndexPrice(req.MarketId),
+		"status":      "ok",
+	})
+}
+
+func (s *Server) handleGetIndexPrice(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	marketId := pathSuffix(r.URL.Path, "/index-price/")
+	if marketId == "" {
+		writeError(w, http.StatusBadRequest, "marketId required")
+		return
+	}
+	indexPrice := s.node.GetIndexPrice(marketId)
+	markPrice := s.node.GetMarkPrice(marketId)
+	var premiumBps int64
+	if indexPrice > 0 {
+		premiumBps = (markPrice - indexPrice) * 10_000 / indexPrice
+	}
+	writeJSON(w, http.StatusOK, IndexPriceResponse{
+		MarketId:    marketId,
+		IndexPrice:  indexPrice,
+		MarkPrice:   markPrice,
+		PremiumBps:  premiumBps,
+		Submissions: s.node.GetIndexOraclePrices(marketId),
+	})
+}
+
 // handleOrderHistory handles GET /orders/{accountId}/history
 func (s *Server) handleOrderHistory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

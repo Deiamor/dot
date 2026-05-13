@@ -32,6 +32,7 @@ const (
 	TxRegisterPerpMarket
 	TxSubmitConditionalOrder
 	TxCancelConditionalOrder
+	TxSubmitIndexPrice // validator submits off-chain CEX index price for funding rate
 )
 
 type Transaction struct {

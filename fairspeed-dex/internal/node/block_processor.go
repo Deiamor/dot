@@ -314,6 +314,22 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 		payload := tx.Payload.(fairbatch.RegisterPerpMarketPayload)
 		return p.processRegisterPerpMarket(payload, blockHeight)
 
+	case fairbatch.TxSubmitIndexPrice:
+		payload := tx.Payload.(fairbatch.SubmitIndexPricePayload)
+		median := p.AppState.SubmitIndexOraclePrice(payload.MarketId, payload.ValidatorId, payload.Price)
+		p.EventBus.Publish(state.Event{
+			Type:        state.EventIndexPriceUpdated,
+			BlockHeight: blockHeight,
+			Payload: state.IndexPriceUpdatedPayload{
+				MarketId:    payload.MarketId,
+				IndexPrice:  median,
+				ValidatorId: payload.ValidatorId,
+				Source:      payload.Source,
+				BlockHeight: blockHeight,
+			},
+		})
+		return nil
+
 	case fairbatch.TxSubmitConditionalOrder:
 		payload := tx.Payload.(fairbatch.SubmitConditionalOrderPayload)
 		return p.processSubmitConditionalOrder(payload, blockHeight)

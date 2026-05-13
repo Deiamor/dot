@@ -506,3 +506,23 @@ func (n *LocalNode) GetOrderHistory(accountId string, limit int) []*clob.Order {
 func (n *LocalNode) AllOpenOrdersForAccount(accountId string) []*clob.Order {
 	return n.AppState.AllOrdersForAccount(accountId)
 }
+
+// SubmitIndexPrice wraps a validator's CEX index price into a FairBatch and processes it.
+func (n *LocalNode) SubmitIndexPrice(marketId, validatorId string, price int64, source string) error {
+	nextHeight := n.AppState.CurrentHeight() + 1
+	batch := fairbatch.NewBatchBuilder(nextHeight).
+		AddSubmitIndexPrice(marketId, validatorId, price, source).
+		Build()
+	_, err := n.SubmitBatch(batch)
+	return err
+}
+
+// GetIndexPrice returns the current median CEX index price for a market.
+func (n *LocalNode) GetIndexPrice(marketId string) int64 {
+	return n.AppState.GetIndexPrice(marketId)
+}
+
+// GetIndexOraclePrices returns per-validator index price submissions for a market.
+func (n *LocalNode) GetIndexOraclePrices(marketId string) map[string]int64 {
+	return n.AppState.GetIndexOraclePrices(marketId)
+}

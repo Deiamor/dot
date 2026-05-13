@@ -54,7 +54,8 @@ type AppState struct {
 	BridgeAttestations  map[string]map[string]int64                       // depositId → validatorId → stake
 	FundingHistory       map[string][]funding.FundingEpoch                 // marketId → epoch list
 	LastFundingBlock     map[string]int64                                  // marketId → last settlement height
-	IndexPrices          map[string]int64                                  // marketId → off-chain index price (0 = use markPrice)
+	IndexPrices          map[string]int64                                  // marketId → computed median index price (0 = use markPrice)
+	IndexOraclePrices    map[string]map[string]int64                       // marketId → validatorId → submitted index price
 	ConditionalOrders    map[string]*clob.ConditionalOrder                 // orderId → conditional order
 	OrderHistory         map[string][]*clob.Order                          // accountId → completed orders (FILLED/CANCELLED/EXPIRED)
 	VestingSchedules     map[string]map[string]*token.VestingSchedule       // accountId → assetId → schedule
@@ -84,6 +85,7 @@ func NewAppState() *AppState {
 		FundingHistory:    make(map[string][]funding.FundingEpoch),
 		LastFundingBlock:  make(map[string]int64),
 		IndexPrices:       make(map[string]int64),
+		IndexOraclePrices: make(map[string]map[string]int64),
 		ConditionalOrders: make(map[string]*clob.ConditionalOrder),
 		OrderHistory:      make(map[string][]*clob.Order),
 		VestingSchedules:  make(map[string]map[string]*token.VestingSchedule),
@@ -943,16 +945,40 @@ func (s *AppState) GetFundingHistory(marketId string) []funding.FundingEpoch {
 	return out
 }
 
-// SetIndexPrice sets the off-chain index price for a market.
-// When non-zero, this overrides the fallback of using markPrice as indexPrice.
+// SetIndexPrice sets the off-chain index price for a market directly (admin/test use).
 func (s *AppState) SetIndexPrice(marketId string, price int64) {
 	s.globalMu.Lock()
 	defer s.globalMu.Unlock()
 	s.IndexPrices[marketId] = price
 }
 
-// GetIndexPrice returns the configured index price for a market.
-// Falls back to the oracle mark price when no index price has been set.
+// SubmitIndexOraclePrice records a validator's CEX index price and recomputes the median.
+// Returns the new median index price.
+func (s *AppState) SubmitIndexOraclePrice(marketId, validatorId string, price int64) int64 {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	if s.IndexOraclePrices[marketId] == nil {
+		s.IndexOraclePrices[marketId] = make(map[string]int64)
+	}
+	s.IndexOraclePrices[marketId][validatorId] = price
+	// Recompute median over all submitted index prices.
+	subs := s.IndexOraclePrices[marketId]
+	prices := make([]int64, 0, len(subs))
+	for _, p := range subs {
+		if p > 0 {
+			prices = append(prices, p)
+		}
+	}
+	if len(prices) == 0 {
+		return 0
+	}
+	median := oracle.MedianPrice(prices)
+	s.IndexPrices[marketId] = median
+	return median
+}
+
+// GetIndexPrice returns the median CEX index price for a market.
+// Falls back to the oracle mark price when no index price has been submitted.
 func (s *AppState) GetIndexPrice(marketId string) int64 {
 	s.globalMu.RLock()
 	p := s.IndexPrices[marketId]
@@ -961,6 +987,18 @@ func (s *AppState) GetIndexPrice(marketId string) int64 {
 		return p
 	}
 	return s.GetMarkPrice(marketId)
+}
+
+// GetIndexOraclePrices returns all per-validator index price submissions for a market.
+func (s *AppState) GetIndexOraclePrices(marketId string) map[string]int64 {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	subs := s.IndexOraclePrices[marketId]
+	out := make(map[string]int64, len(subs))
+	for k, v := range subs {
+		out[k] = v
+	}
+	return out
 }
 
 // ---- conditional orders -----------------------------------------------------

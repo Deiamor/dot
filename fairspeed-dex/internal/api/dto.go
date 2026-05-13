@@ -202,6 +202,23 @@ type FaucetResponse struct {
 	Status  string `json:"status"`
 }
 
+// SubmitIndexPriceRequest is the JSON body for POST /index-price.
+type SubmitIndexPriceRequest struct {
+	MarketId    string `json:"market_id"`
+	ValidatorId string `json:"validator_id"`
+	Price       int64  `json:"price"`
+	Source      string `json:"source,omitempty"`
+}
+
+// IndexPriceResponse is returned by GET /index-price/{marketId}.
+type IndexPriceResponse struct {
+	MarketId    string            `json:"market_id"`
+	IndexPrice  int64             `json:"index_price"`
+	MarkPrice   int64             `json:"mark_price"`
+	PremiumBps  int64             `json:"premium_bps"`  // (mark-index)*10000/index
+	Submissions map[string]int64  `json:"submissions"`  // validatorId → price
+}
+
 // OrderHistoryResponse is one entry in GET /orders/{accountId}/history.
 type OrderHistoryResponse struct {
 	OrderId            string `json:"order_id"`

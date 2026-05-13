@@ -58,6 +58,8 @@ const (
 	EventReferralRecorded EventType = "REFERRAL_RECORDED"
 	EventTGEAllocated     EventType = "TGE_ALLOCATED"
 
+	EventIndexPriceUpdated EventType = "INDEX_PRICE_UPDATED"
+
 	EventAll EventType = "*"
 )
 
@@ -245,6 +247,14 @@ type MarketResumedPayload struct {
 type MarkPriceUpdatedPayload struct {
 	MarketId    string
 	MarkPrice   int64
+	BlockHeight int64
+}
+
+type IndexPriceUpdatedPayload struct {
+	MarketId    string
+	IndexPrice  int64
+	ValidatorId string
+	Source      string
 	BlockHeight int64
 }
 

@@ -76,6 +76,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/conditional-orders", s.handleConditionalOrders)
 	s.mux.HandleFunc("/conditional-orders/", s.handleConditionalOrders)
 	s.mux.HandleFunc("/faucet/", s.handleFaucet)
+	s.mux.HandleFunc("/index-price", s.handleIndexPrice)
+	s.mux.HandleFunc("/index-price/", s.handleIndexPrice)
 }
 
 // subscribeEvents wires the node's EventBus to SSE hub broadcasts.

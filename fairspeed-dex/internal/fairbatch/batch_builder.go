@@ -319,6 +319,25 @@ func (b *BatchBuilder) AddSubmitPrice(marketId, validatorId string, price int64)
 	return b
 }
 
+// SubmitIndexPricePayload carries a validator's CEX index price for a PERP market.
+// The index price anchors the funding rate calculation.
+// Source examples: "binance", "okx", "coinbase".
+type SubmitIndexPricePayload struct {
+	MarketId    string
+	ValidatorId string
+	Price       int64
+	Source      string // informational: which CEX feed this came from
+}
+
+// AddSubmitIndexPrice appends a validator index price submission to the batch.
+func (b *BatchBuilder) AddSubmitIndexPrice(marketId, validatorId string, price int64, source string) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:  TxSubmitIndexPrice,
+		Payload: SubmitIndexPricePayload{MarketId: marketId, ValidatorId: validatorId, Price: price, Source: source},
+	})
+	return b
+}
+
 
 // WithdrawRequestPayload requests a large withdrawal that requires a timelock delay.
 type WithdrawRequestPayload struct {
