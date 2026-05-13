@@ -130,6 +130,9 @@ func (r *RiskChecker) CheckOrder(o *clob.Order, sess *account.TradingSession, bl
 	if err := r.checkPerpLeverage(o); err != nil {
 		return err
 	}
+	if err := r.checkPerpKYC(o); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -195,6 +198,23 @@ func (r *RiskChecker) checkKYC(accountId string) error {
 		return nil
 	}
 	return fmt.Errorf("KYC not approved: account=%s status=%s", accountId, status)
+}
+
+// checkPerpKYC enforces KYC for PERP market orders when RequirePerpKYC is set,
+// independent of the global RequireKYC flag. This supports stricter compliance
+// requirements for leverage products.
+func (r *RiskChecker) checkPerpKYC(o *clob.Order) error {
+	if !r.policy.RequirePerpKYC || r.perpStore == nil || r.kycStore == nil {
+		return nil
+	}
+	if _, isPerp := r.perpStore.GetPerpConfig(o.MarketId); !isPerp {
+		return nil // SPOT market — handled by checkKYC
+	}
+	status := r.kycStore.GetKYCStatus(o.AccountId)
+	if status == account.KYCStatusApproved || status == account.KYCStatusExempt {
+		return nil
+	}
+	return fmt.Errorf("KYC required for PERP trading: account=%s status=%s", o.AccountId, status)
 }
 
 // checkPositionLimit rejects an order that would push the account's net position

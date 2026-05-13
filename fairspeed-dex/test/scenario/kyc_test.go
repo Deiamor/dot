@@ -293,3 +293,84 @@ func TestKYC_ReportEndpoint_KYCStatus(t *testing.T) {
 		t.Errorf("after approve KYC status: want APPROVED got %s", kycResp.KYCStatus)
 	}
 }
+
+// -------------------------------------------------------------------------
+// Scenario 9: RequirePerpKYC=true — PERP orders rejected without KYC approval
+// even when global RequireKYC=false.
+// -------------------------------------------------------------------------
+func TestKYC_PerpOrderRejectedWithoutKYC(t *testing.T) {
+	// RequirePerpKYC=true, but RequireKYC=false — SPOT trading is still allowed
+	// for PENDING accounts while PERP trading requires KYC.
+	policy := risk.RiskPolicy{
+		MaxOrderQuantity:         1_000_000,
+		MinOrderQuantity:         1,
+		MaxDailyVolumePerSession: 100_000_000,
+		RequireKYC:               false, // SPOT still unrestricted
+		RequirePerpKYC:           true,  // PERP requires KYC
+	}
+	n, aliceId, _, aliceSess, _ := bootstrapNodeWithPolicy(t, policy)
+
+	// Deposit USDC and register a PERP market.
+	_, _ = n.SubmitBatch(fairbatch.NewBatchBuilder(4).
+		AddDeposit(aliceId, "USDC", 1_000_000).
+		AddRegisterPerpMarket(fairbatch.RegisterPerpMarketPayload{
+			MarketId:              "BTC-USDC-PERP",
+			BaseAsset:             "BTC",
+			QuoteAsset:            "USDC",
+			InitialMarginBps:      1000,
+			MaintenanceMarginBps:  500,
+			MaxLeverage:           10,
+			FundingIntervalBlocks: 100,
+			MaxFundingRateBps:     200,
+		}).Build())
+
+	// Create a PERP-enabled session for Alice.
+	var perpSess string
+	n.Subscribe(state.EventSessionCreated, func(e state.Event) {
+		p := e.Payload.(state.SessionCreatedPayload)
+		if p.AccountId == aliceId && perpSess == "" {
+			perpSess = p.SessionId
+		}
+	})
+	_, _ = n.SubmitBatch(fairbatch.NewBatchBuilder(5).
+		AddCreateSession(aliceId, account.SessionOptions{
+			AllowedMarkets: []string{"BTC-USDC-PERP"},
+			MaxOrderAmount: 1_000_000,
+		}).Build())
+	_ = aliceSess // original BTC-USDC session unused here
+
+	// Alice is PENDING — PERP order should be rejected.
+	if n.GetKYCStatus(aliceId) != account.KYCStatusPending {
+		t.Fatalf("expected PENDING KYC, got %s", n.GetKYCStatus(aliceId))
+	}
+
+	var rejectedOrderId string
+	n.Subscribe(state.EventOrderRejected, func(e state.Event) {
+		rejectedOrderId = e.Payload.(state.OrderRejectedPayload).OrderId
+	})
+
+	perpOrder := clob.NewLimitOrder(aliceId, perpSess, "BTC-USDC-PERP", clob.OrderSideBuy, 10_000, 1, clob.TimeInForceGtc, 6)
+	perpOrder.AccountSequence = n.GetAccountSequence(aliceId)
+	if _, err := n.SubmitBatch(fairbatch.NewBatchBuilder(6).AddSubmitOrder(perpOrder).Build()); err != nil {
+		t.Fatalf("submit perp order: %v", err)
+	}
+	if rejectedOrderId == "" {
+		t.Error("expected PERP order to be rejected for PENDING KYC (RequireKYC=false globally)")
+	}
+
+	// After KYC approval the PERP order should be accepted.
+	_, _ = n.SubmitBatch(fairbatch.NewBatchBuilder(7).AddKYCApprove(aliceId, "APPROVED").Build())
+	rejectedOrderId = ""
+
+	perpOrder2 := clob.NewLimitOrder(aliceId, perpSess, "BTC-USDC-PERP", clob.OrderSideBuy, 10_000, 1, clob.TimeInForceGtc, 8)
+	perpOrder2.AccountSequence = n.GetAccountSequence(aliceId)
+	if _, err := n.SubmitBatch(fairbatch.NewBatchBuilder(8).AddSubmitOrder(perpOrder2).Build()); err != nil {
+		t.Fatalf("submit perp order post-KYC: %v", err)
+	}
+	if rejectedOrderId != "" {
+		t.Error("expected PERP order to be accepted after KYC approval")
+	}
+	if n.GetKYCStatus(aliceId) != account.KYCStatusApproved {
+		t.Errorf("expected APPROVED after KYCApprove, got %s", n.GetKYCStatus(aliceId))
+	}
+}

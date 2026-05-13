@@ -11,6 +11,9 @@ type RiskPolicy struct {
 	// RequireKYC enforces that the trader's account has KYCStatus == APPROVED or EXEMPT
 	// before an order is accepted. Set false for test / bootstrap environments.
 	RequireKYC bool
+	// RequirePerpKYC enforces KYC for PERP market orders independent of RequireKYC.
+	// Enables stricter compliance requirements for leverage products.
+	RequirePerpKYC bool
 	// AMLSingleTradeLimitNotional fires an AML alert when a single trade's notional
 	// (price × quantity) exceeds this value. 0 means disabled.
 	AMLSingleTradeLimitNotional int64
