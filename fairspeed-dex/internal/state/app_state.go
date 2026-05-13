@@ -50,9 +50,10 @@ type AppState struct {
 	PendingWithdrawals  map[string]*account.PendingWithdrawal             // withdrawalId → pending withdrawal
 	BridgeDeposits      map[string]*bridge.BridgeDeposit                  // depositId → deposit
 	BridgeAttestations  map[string]map[string]int64                       // depositId → validatorId → stake
-	FundingHistory      map[string][]funding.FundingEpoch                 // marketId → epoch list
-	LastFundingBlock    map[string]int64                                  // marketId → last settlement height
-	IndexPrices         map[string]int64                                  // marketId → off-chain index price (0 = use markPrice)
+	FundingHistory       map[string][]funding.FundingEpoch                 // marketId → epoch list
+	LastFundingBlock     map[string]int64                                  // marketId → last settlement height
+	IndexPrices          map[string]int64                                  // marketId → off-chain index price (0 = use markPrice)
+	ConditionalOrders    map[string]*clob.ConditionalOrder                 // orderId → conditional order
 	BlockHeight         int64
 }
 
@@ -74,9 +75,10 @@ func NewAppState() *AppState {
 		PendingWithdrawals: make(map[string]*account.PendingWithdrawal),
 		BridgeDeposits:     make(map[string]*bridge.BridgeDeposit),
 		BridgeAttestations: make(map[string]map[string]int64),
-		FundingHistory:     make(map[string][]funding.FundingEpoch),
-		LastFundingBlock:   make(map[string]int64),
-		IndexPrices:        make(map[string]int64),
+		FundingHistory:    make(map[string][]funding.FundingEpoch),
+		LastFundingBlock:  make(map[string]int64),
+		IndexPrices:       make(map[string]int64),
+		ConditionalOrders: make(map[string]*clob.ConditionalOrder),
 	}
 }
 
@@ -911,6 +913,93 @@ func (s *AppState) GetIndexPrice(marketId string) int64 {
 		return p
 	}
 	return s.GetMarkPrice(marketId)
+}
+
+// ---- conditional orders -----------------------------------------------------
+
+// AddConditionalOrder stores a new conditional order.
+func (s *AppState) AddConditionalOrder(o clob.ConditionalOrder) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	cp := o
+	s.ConditionalOrders[o.OrderId] = &cp
+}
+
+// GetConditionalOrder returns the conditional order for orderId (nil, false if not found).
+func (s *AppState) GetConditionalOrder(orderId string) (*clob.ConditionalOrder, bool) {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	o, ok := s.ConditionalOrders[orderId]
+	if !ok {
+		return nil, false
+	}
+	cp := *o
+	return &cp, true
+}
+
+// RemoveConditionalOrder deletes a conditional order by ID.
+func (s *AppState) RemoveConditionalOrder(orderId string) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	delete(s.ConditionalOrders, orderId)
+}
+
+// TriggeredConditionals returns all OPEN conditional orders for marketId whose
+// trigger condition is satisfied at the given markPrice.
+// Returns empty when markPrice == 0 (oracle not yet priced).
+func (s *AppState) TriggeredConditionals(marketId string, markPrice int64) []clob.ConditionalOrder {
+	if markPrice == 0 {
+		return nil
+	}
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	var out []clob.ConditionalOrder
+	for _, o := range s.ConditionalOrders {
+		if o.MarketId != marketId || o.Status != clob.OrderStatusOpen {
+			continue
+		}
+		triggered := false
+		switch o.TriggerCondition {
+		case clob.TriggerGTE:
+			triggered = markPrice >= o.TriggerPrice
+		case clob.TriggerLTE:
+			triggered = markPrice <= o.TriggerPrice
+		}
+		if triggered {
+			out = append(out, *o)
+		}
+	}
+	return out
+}
+
+// ExpiredConditionals returns all OPEN conditional orders whose ExpireBlockHeight
+// has been reached (> 0 and <= blockHeight).
+func (s *AppState) ExpiredConditionals(blockHeight int64) []clob.ConditionalOrder {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	var out []clob.ConditionalOrder
+	for _, o := range s.ConditionalOrders {
+		if o.Status != clob.OrderStatusOpen {
+			continue
+		}
+		if o.ExpireBlockHeight > 0 && blockHeight >= o.ExpireBlockHeight {
+			out = append(out, *o)
+		}
+	}
+	return out
+}
+
+// AllConditionalOrdersForMarket returns all OPEN conditional orders for a market.
+func (s *AppState) AllConditionalOrdersForMarket(marketId string) []clob.ConditionalOrder {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	var out []clob.ConditionalOrder
+	for _, o := range s.ConditionalOrders {
+		if o.MarketId == marketId && o.Status == clob.OrderStatusOpen {
+			out = append(out, *o)
+		}
+	}
+	return out
 }
 
 // AllPerpMarkets returns all PERP market IDs and their configs.

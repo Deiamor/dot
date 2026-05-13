@@ -410,3 +410,13 @@ func (n *LocalNode) GetLastFundingBlock(marketId string) int64 {
 func (n *LocalNode) SetIndexPrice(marketId string, price int64) {
 	n.AppState.SetIndexPrice(marketId, price)
 }
+
+// GetConditionalOrder returns a conditional order by ID.
+func (n *LocalNode) GetConditionalOrder(orderId string) (*clob.ConditionalOrder, bool) {
+	return n.AppState.GetConditionalOrder(orderId)
+}
+
+// AllConditionalOrders returns all open conditional orders for a market.
+func (n *LocalNode) AllConditionalOrders(marketId string) []clob.ConditionalOrder {
+	return n.AppState.AllConditionalOrdersForMarket(marketId)
+}

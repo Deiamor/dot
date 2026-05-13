@@ -94,6 +94,12 @@ func (p *LocalBlockProcessor) ProcessBlock(block LocalBlock) (BlockResult, error
 	// Check all PERP positions for maintenance margin breach and liquidate as needed.
 	p.checkAndLiquidate(block.Height)
 
+	// Evaluate conditional orders (stop-loss / take-profit triggers).
+	p.evaluateConditionalOrders(block.Height)
+
+	// Expire conditional orders whose block height has been reached.
+	p.expireConditionalOrders(block.Height)
+
 	allTrades = p.SettlementKeeper.TradesForBlock(block.Height)
 	p.AppState.IncrementBlock()
 
@@ -302,6 +308,14 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 	case fairbatch.TxRegisterPerpMarket:
 		payload := tx.Payload.(fairbatch.RegisterPerpMarketPayload)
 		return p.processRegisterPerpMarket(payload, blockHeight)
+
+	case fairbatch.TxSubmitConditionalOrder:
+		payload := tx.Payload.(fairbatch.SubmitConditionalOrderPayload)
+		return p.processSubmitConditionalOrder(payload, blockHeight)
+
+	case fairbatch.TxCancelConditionalOrder:
+		payload := tx.Payload.(fairbatch.CancelConditionalOrderPayload)
+		return p.processCancelConditionalOrder(payload, blockHeight)
 
 	default:
 		return fmt.Errorf("unknown transaction type: %d", tx.TxType)
@@ -990,6 +1004,108 @@ func (p *LocalBlockProcessor) checkAndLiquidate(blockHeight int64) {
 				FilledPrice: markPrice,
 				PnL:         unrealizedPnL,
 				BlockHeight: blockHeight,
+			},
+		})
+	}
+}
+
+// processSubmitConditionalOrder stores a new conditional order (stop-loss / take-profit).
+func (p *LocalBlockProcessor) processSubmitConditionalOrder(payload fairbatch.SubmitConditionalOrderPayload, blockHeight int64) error {
+	o := payload.Order
+	if o.OrderId == "" {
+		return fmt.Errorf("conditional order: missing OrderId")
+	}
+	o.CreatedBlockHeight = blockHeight
+	o.Status = clob.OrderStatusOpen
+	p.AppState.AddConditionalOrder(o)
+	p.EventBus.Publish(state.Event{
+		Type:        state.EventConditionalOrderSubmitted,
+		BlockHeight: blockHeight,
+		Payload: state.ConditionalOrderSubmittedPayload{
+			OrderId:   o.OrderId,
+			AccountId: o.AccountId,
+			MarketId:  o.MarketId,
+		},
+	})
+	return nil
+}
+
+// processCancelConditionalOrder removes an open conditional order by ID.
+func (p *LocalBlockProcessor) processCancelConditionalOrder(payload fairbatch.CancelConditionalOrderPayload, blockHeight int64) error {
+	o, ok := p.AppState.GetConditionalOrder(payload.OrderId)
+	if !ok {
+		return fmt.Errorf("conditional order not found: %s", payload.OrderId)
+	}
+	if o.AccountId != payload.AccountId {
+		return fmt.Errorf("conditional order %s does not belong to account %s", payload.OrderId, payload.AccountId)
+	}
+	p.AppState.RemoveConditionalOrder(payload.OrderId)
+	p.EventBus.Publish(state.Event{
+		Type:        state.EventConditionalOrderCancelled,
+		BlockHeight: blockHeight,
+		Payload: state.ConditionalOrderCancelledPayload{
+			OrderId:   payload.OrderId,
+			AccountId: payload.AccountId,
+		},
+	})
+	return nil
+}
+
+// evaluateConditionalOrders checks each open conditional order against the current
+// mark price and fires those whose trigger condition is satisfied.
+func (p *LocalBlockProcessor) evaluateConditionalOrders(blockHeight int64) {
+	perpMarkets := p.AppState.AllPerpMarkets()
+	for marketId := range perpMarkets {
+		markPrice := p.AppState.GetMarkPrice(marketId)
+		triggered := p.AppState.TriggeredConditionals(marketId, markPrice)
+		for _, co := range triggered {
+			p.AppState.RemoveConditionalOrder(co.OrderId)
+
+			// Convert the conditional order into a regular order and process it.
+			newOrder := clob.Order{
+				OrderId:         co.OrderId,
+				AccountId:       co.AccountId,
+				SessionId:       co.SessionId,
+				MarketId:        co.MarketId,
+				Side:            co.Side,
+				OrderType:       co.OrderType,
+				Price:           co.Price,
+				Quantity:        co.Quantity,
+				RemainingQuantity: co.Quantity,
+				TimeInForce:     clob.TimeInForceGtc,
+				ReduceOnly:      co.ReduceOnly,
+				AccountSequence: co.AccountSequence,
+				Signature:       co.Signature,
+				Status:          clob.OrderStatusOpen,
+			}
+			_ = p.processOrder(newOrder, co.Signature, blockHeight)
+
+			p.EventBus.Publish(state.Event{
+				Type:        state.EventConditionalOrderTriggered,
+				BlockHeight: blockHeight,
+				Payload: state.ConditionalOrderTriggeredPayload{
+					OrderId:   co.OrderId,
+					AccountId: co.AccountId,
+					MarketId:  co.MarketId,
+					MarkPrice: markPrice,
+				},
+			})
+		}
+	}
+}
+
+// expireConditionalOrders removes conditional orders whose ExpireBlockHeight has passed.
+func (p *LocalBlockProcessor) expireConditionalOrders(blockHeight int64) {
+	expired := p.AppState.ExpiredConditionals(blockHeight)
+	for _, co := range expired {
+		p.AppState.RemoveConditionalOrder(co.OrderId)
+		p.EventBus.Publish(state.Event{
+			Type:        state.EventConditionalOrderExpired,
+			BlockHeight: blockHeight,
+			Payload: state.ConditionalOrderExpiredPayload{
+				OrderId:   co.OrderId,
+				AccountId: co.AccountId,
+				MarketId:  co.MarketId,
 			},
 		})
 	}

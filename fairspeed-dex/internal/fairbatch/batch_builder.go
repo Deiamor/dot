@@ -366,6 +366,35 @@ func (b *BatchBuilder) AddRegisterPerpMarket(p RegisterPerpMarketPayload) *Batch
 	return b
 }
 
+// SubmitConditionalOrderPayload wraps a ConditionalOrder for inclusion in a batch.
+type SubmitConditionalOrderPayload struct {
+	Order clob.ConditionalOrder
+}
+
+// CancelConditionalOrderPayload cancels a pending conditional order by ID.
+type CancelConditionalOrderPayload struct {
+	OrderId   string
+	AccountId string
+}
+
+// AddSubmitConditionalOrder appends a conditional order submission to the batch.
+func (b *BatchBuilder) AddSubmitConditionalOrder(o clob.ConditionalOrder) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:  TxSubmitConditionalOrder,
+		Payload: SubmitConditionalOrderPayload{Order: o},
+	})
+	return b
+}
+
+// AddCancelConditionalOrder appends a conditional order cancellation to the batch.
+func (b *BatchBuilder) AddCancelConditionalOrder(orderId, accountId string) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:  TxCancelConditionalOrder,
+		Payload: CancelConditionalOrderPayload{OrderId: orderId, AccountId: accountId},
+	})
+	return b
+}
+
 // BridgeAttestPayload carries a validator's attestation for a cross-chain deposit.
 type BridgeAttestPayload struct {
 	DepositId   string

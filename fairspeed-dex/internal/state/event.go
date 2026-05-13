@@ -45,10 +45,14 @@ const (
 	EventPerpMarketRegistered   EventType = "PERP_MARKET_REGISTERED"
 	EventPerpPositionUpdated    EventType = "PERP_POSITION_UPDATED"
 	EventFundingSettled         EventType = "FUNDING_SETTLED"
-	EventLiquidationTriggered   EventType = "LIQUIDATION_TRIGGERED"
-	EventLiquidationFilled      EventType = "LIQUIDATION_FILLED"
-	EventInsuranceDrawdown      EventType = "INSURANCE_DRAWDOWN"
-	EventSocializedLoss         EventType = "SOCIALIZED_LOSS"
+	EventLiquidationTriggered       EventType = "LIQUIDATION_TRIGGERED"
+	EventLiquidationFilled          EventType = "LIQUIDATION_FILLED"
+	EventInsuranceDrawdown          EventType = "INSURANCE_DRAWDOWN"
+	EventSocializedLoss             EventType = "SOCIALIZED_LOSS"
+	EventConditionalOrderSubmitted  EventType = "CONDITIONAL_ORDER_SUBMITTED"
+	EventConditionalOrderTriggered  EventType = "CONDITIONAL_ORDER_TRIGGERED"
+	EventConditionalOrderExpired    EventType = "CONDITIONAL_ORDER_EXPIRED"
+	EventConditionalOrderCancelled  EventType = "CONDITIONAL_ORDER_CANCELLED"
 
 	EventAll EventType = "*"
 )
@@ -302,6 +306,34 @@ type BridgeCompletedPayload struct {
 	AssetId     string
 	Amount      int64
 	BlockHeight int64
+}
+
+// ConditionalOrderSubmittedPayload is emitted when a conditional order is accepted.
+type ConditionalOrderSubmittedPayload struct {
+	OrderId   string
+	AccountId string
+	MarketId  string
+}
+
+// ConditionalOrderTriggeredPayload is emitted when a conditional order's condition is met.
+type ConditionalOrderTriggeredPayload struct {
+	OrderId   string
+	AccountId string
+	MarketId  string
+	MarkPrice int64
+}
+
+// ConditionalOrderExpiredPayload is emitted when an order expires without triggering.
+type ConditionalOrderExpiredPayload struct {
+	OrderId   string
+	AccountId string
+	MarketId  string
+}
+
+// ConditionalOrderCancelledPayload is emitted when a conditional order is cancelled.
+type ConditionalOrderCancelledPayload struct {
+	OrderId   string
+	AccountId string
 }
 
 // LiquidationTriggeredPayload is emitted when a position breaches maintenance margin.

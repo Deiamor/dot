@@ -30,6 +30,8 @@ const (
 	TxWithdrawRequest
 	TxBridgeAttest
 	TxRegisterPerpMarket
+	TxSubmitConditionalOrder
+	TxCancelConditionalOrder
 )
 
 type Transaction struct {
@@ -150,6 +152,15 @@ func computeTxHash(tx Transaction, blockHeight int64) string {
 		data += ":" + strconv.FormatInt(p.MaxLeverage, 10)
 		data += ":" + strconv.FormatInt(p.FundingIntervalBlocks, 10)
 		data += ":" + strconv.FormatInt(p.MaxFundingRateBps, 10)
+	case SubmitConditionalOrderPayload:
+		o := p.Order
+		data += ":" + o.OrderId + ":" + o.AccountId + ":" + o.MarketId
+		data += ":" + string(o.Side) + ":" + string(o.OrderType)
+		data += ":" + strconv.FormatInt(o.Price, 10) + ":" + strconv.FormatInt(o.Quantity, 10)
+		data += ":" + strconv.FormatInt(o.TriggerPrice, 10) + ":" + string(o.TriggerCondition)
+		data += ":" + strconv.FormatInt(o.ExpireBlockHeight, 10)
+	case CancelConditionalOrderPayload:
+		data += ":" + p.OrderId + ":" + p.AccountId
 	}
 
 	data += ":" + strconv.FormatInt(blockHeight, 10)
