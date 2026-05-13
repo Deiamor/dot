@@ -221,6 +221,33 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 		p.SanctionsStore.RemoveSanction(payload.AccountId)
 		return nil
 
+	case fairbatch.TxHaltMarket:
+		payload := tx.Payload.(fairbatch.HaltMarketPayload)
+		p.AppState.HaltMarket(payload.MarketId, payload.Reason, blockHeight)
+		p.EventBus.Publish(state.Event{
+			Type:        state.EventMarketHalted,
+			BlockHeight: blockHeight,
+			Payload: state.MarketHaltedPayload{
+				MarketId:    payload.MarketId,
+				Reason:      payload.Reason,
+				BlockHeight: blockHeight,
+			},
+		})
+		return nil
+
+	case fairbatch.TxResumeMarket:
+		payload := tx.Payload.(fairbatch.ResumeMarketPayload)
+		p.AppState.ResumeMarket(payload.MarketId)
+		p.EventBus.Publish(state.Event{
+			Type:        state.EventMarketResumed,
+			BlockHeight: blockHeight,
+			Payload: state.MarketResumedPayload{
+				MarketId:    payload.MarketId,
+				BlockHeight: blockHeight,
+			},
+		})
+		return nil
+
 	default:
 		return fmt.Errorf("unknown transaction type: %d", tx.TxType)
 	}
@@ -229,6 +256,12 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 func (p *LocalBlockProcessor) processOrder(o clob.Order, txHash string, blockHeight int64) error {
 	// All validation failures below are "soft" rejections: emit OrderRejected and return nil
 	// so the block continues processing subsequent transactions.
+
+	// Circuit breaker: reject new orders when market is halted.
+	if p.AppState.GetMarketStatus(o.MarketId) == clob.MarketStatusHalted {
+		p.emitOrderRejected(o, "market "+o.MarketId+" is halted", blockHeight)
+		return nil
+	}
 
 	sess, err := p.AccountKeeper.ValidateSession(o.SessionId, o.MarketId, blockHeight)
 	if err != nil {

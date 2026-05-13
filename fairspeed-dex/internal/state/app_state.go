@@ -41,6 +41,7 @@ type AppState struct {
 	Proposals   map[string]*governance.Proposal
 	Votes       map[string][]governance.VoteRecord // keyed by proposalId
 	Sanctions   map[string]*compliance.SanctionEntry
+	Markets     map[string]*clob.MarketInfo // per-market status (halt/resume)
 	BlockHeight int64
 }
 
@@ -56,6 +57,7 @@ func NewAppState() *AppState {
 		Proposals:  make(map[string]*governance.Proposal),
 		Votes:      make(map[string][]governance.VoteRecord),
 		Sanctions:  make(map[string]*compliance.SanctionEntry),
+		Markets:    make(map[string]*clob.MarketInfo),
 	}
 }
 
@@ -369,6 +371,49 @@ func (s *AppState) AllSanctions() []compliance.SanctionEntry {
 	return result
 }
 
+// ---- circuit breaker / market halt ------------------------------------------
+
+// GetMarketStatus returns the operational status of marketId.
+// Returns MarketStatusActive when no explicit entry exists.
+func (s *AppState) GetMarketStatus(marketId string) clob.MarketStatus {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	if info, ok := s.Markets[marketId]; ok {
+		return info.Status
+	}
+	return clob.MarketStatusActive
+}
+
+// GetMarketInfo returns the full MarketInfo for a market (nil if not set).
+func (s *AppState) GetMarketInfo(marketId string) (*clob.MarketInfo, bool) {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	info, ok := s.Markets[marketId]
+	return info, ok
+}
+
+// HaltMarket sets a market to HALTED status with the given reason.
+func (s *AppState) HaltMarket(marketId, reason string, height int64) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	s.Markets[marketId] = &clob.MarketInfo{
+		MarketId:       marketId,
+		Status:         clob.MarketStatusHalted,
+		HaltReason:     reason,
+		HaltedAtHeight: height,
+	}
+}
+
+// ResumeMarket sets a market back to ACTIVE status.
+func (s *AppState) ResumeMarket(marketId string) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	s.Markets[marketId] = &clob.MarketInfo{
+		MarketId: marketId,
+		Status:   clob.MarketStatusActive,
+	}
+}
+
 // ---- snapshot persistence ---------------------------------------------------
 
 type appStateSnapshot struct {
@@ -379,10 +424,11 @@ type appStateSnapshot struct {
 	Assets      map[string]*asset.Asset                  `json:"assets"`
 	Orders      map[string]*clob.Order                   `json:"orders"`
 	OrderBooks  map[string]*clob.OrderBook               `json:"order_books"`
-	Validators  map[string]*validator.Validator            `json:"validators,omitempty"`
-	Proposals   map[string]*governance.Proposal            `json:"proposals,omitempty"`
-	Votes       map[string][]governance.VoteRecord         `json:"votes,omitempty"`
-	Sanctions   map[string]*compliance.SanctionEntry       `json:"sanctions,omitempty"`
+	Validators  map[string]*validator.Validator          `json:"validators,omitempty"`
+	Proposals   map[string]*governance.Proposal          `json:"proposals,omitempty"`
+	Votes       map[string][]governance.VoteRecord       `json:"votes,omitempty"`
+	Sanctions   map[string]*compliance.SanctionEntry     `json:"sanctions,omitempty"`
+	Markets     map[string]*clob.MarketInfo              `json:"markets,omitempty"`
 }
 
 // SaveSnapshot serialises the current state to disk atomically (write-then-rename).
@@ -402,6 +448,7 @@ func (s *AppState) SaveSnapshot(path string) error {
 		Proposals:   make(map[string]*governance.Proposal, len(s.Proposals)),
 		Votes:       make(map[string][]governance.VoteRecord, len(s.Votes)),
 		Sanctions:   make(map[string]*compliance.SanctionEntry, len(s.Sanctions)),
+		Markets:     make(map[string]*clob.MarketInfo, len(s.Markets)),
 	}
 	for k, v := range s.Accounts {
 		snap.Accounts[k] = v
@@ -440,6 +487,9 @@ func (s *AppState) SaveSnapshot(path string) error {
 	}
 	for k, v := range s.Sanctions {
 		snap.Sanctions[k] = v
+	}
+	for k, v := range s.Markets {
+		snap.Markets[k] = v
 	}
 	s.globalMu.Unlock()
 
@@ -514,6 +564,9 @@ func (s *AppState) LoadSnapshot(path string) error {
 	}
 	if snap.Sanctions != nil {
 		s.Sanctions = snap.Sanctions
+	}
+	if snap.Markets != nil {
+		s.Markets = snap.Markets
 	}
 	return nil
 }

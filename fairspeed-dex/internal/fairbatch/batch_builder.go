@@ -274,6 +274,35 @@ func (b *BatchBuilder) AddUnsanctionAccount(accountId string) *BatchBuilder {
 	return b
 }
 
+// HaltMarketPayload suspends all order submission in a market.
+type HaltMarketPayload struct {
+	MarketId string
+	Reason   string
+}
+
+// ResumeMarketPayload lifts a previously imposed market halt.
+type ResumeMarketPayload struct {
+	MarketId string
+}
+
+// AddHaltMarket appends a market-halt transaction to the batch.
+func (b *BatchBuilder) AddHaltMarket(marketId, reason string) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:  TxHaltMarket,
+		Payload: HaltMarketPayload{MarketId: marketId, Reason: reason},
+	})
+	return b
+}
+
+// AddResumeMarket appends a market-resume transaction to the batch.
+func (b *BatchBuilder) AddResumeMarket(marketId string) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:  TxResumeMarket,
+		Payload: ResumeMarketPayload{MarketId: marketId},
+	})
+	return b
+}
+
 func (b *BatchBuilder) Build() FairBatch {
 	sorted, batchHash := SortAndHash(b.txs, b.blockHeight)
 	return FairBatch{

@@ -32,6 +32,9 @@ const (
 	EventProposalRejected      EventType = "PROPOSAL_REJECTED"
 	EventProposalExecuted      EventType = "PROPOSAL_EXECUTED"
 
+	EventMarketHalted  EventType = "MARKET_HALTED"
+	EventMarketResumed EventType = "MARKET_RESUMED"
+
 	EventAll EventType = "*"
 )
 
@@ -203,4 +206,15 @@ type ProposalRejectedPayload struct {
 
 type ProposalExecutedPayload struct {
 	ProposalId string
+}
+
+type MarketHaltedPayload struct {
+	MarketId    string
+	Reason      string
+	BlockHeight int64
+}
+
+type MarketResumedPayload struct {
+	MarketId    string
+	BlockHeight int64
 }

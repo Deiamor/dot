@@ -302,6 +302,11 @@ func (n *LocalNode) IsSanctioned(accountId string) bool {
 	return n.AppState.IsSanctioned(accountId)
 }
 
+// GetMarketStatus returns the current operational status of a market.
+func (n *LocalNode) GetMarketStatus(marketId string) clob.MarketStatus {
+	return n.AppState.GetMarketStatus(marketId)
+}
+
 // AllSanctions returns all current on-chain sanction entries.
 func (n *LocalNode) AllSanctions() []compliance.SanctionEntry {
 	return n.AppState.AllSanctions()
