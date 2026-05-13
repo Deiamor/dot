@@ -1,7 +1,10 @@
 package state
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
@@ -217,6 +220,121 @@ func (s *AppState) SetOrder(o *clob.Order) {
 	s.globalMu.Lock()
 	defer s.globalMu.Unlock()
 	s.Orders[o.OrderId] = o
+}
+
+// ---- snapshot persistence ---------------------------------------------------
+
+type appStateSnapshot struct {
+	BlockHeight int64                                    `json:"block_height"`
+	Accounts    map[string]*account.NativeAccount        `json:"accounts"`
+	Sessions    map[string]*account.TradingSession       `json:"sessions"`
+	Balances    map[string]map[string]*asset.Balance     `json:"balances"`
+	Assets      map[string]*asset.Asset                  `json:"assets"`
+	Orders      map[string]*clob.Order                   `json:"orders"`
+	OrderBooks  map[string]*clob.OrderBook               `json:"order_books"`
+}
+
+// SaveSnapshot serialises the current state to disk atomically (write-then-rename).
+// Safe to call from Commit: FinalizeBlock cannot run concurrently (DEXApplication
+// mutex ensures exclusivity), so no concurrent writes to OrderBooks occur here.
+func (s *AppState) SaveSnapshot(path string) error {
+	s.globalMu.Lock()
+	snap := appStateSnapshot{
+		BlockHeight: s.BlockHeight,
+		Accounts:    make(map[string]*account.NativeAccount, len(s.Accounts)),
+		Sessions:    make(map[string]*account.TradingSession, len(s.Sessions)),
+		Balances:    make(map[string]map[string]*asset.Balance, len(s.Balances)),
+		Assets:      make(map[string]*asset.Asset, len(s.Assets)),
+		Orders:      make(map[string]*clob.Order, len(s.Orders)),
+		OrderBooks:  make(map[string]*clob.OrderBook, len(s.OrderBooks)),
+	}
+	for k, v := range s.Accounts {
+		snap.Accounts[k] = v
+	}
+	for k, v := range s.Sessions {
+		snap.Sessions[k] = v
+	}
+	for k, v := range s.Assets {
+		snap.Assets[k] = v
+	}
+	for k, v := range s.Orders {
+		snap.Orders[k] = v
+	}
+	for k, bals := range s.Balances {
+		snap.Balances[k] = make(map[string]*asset.Balance, len(bals))
+		for assetId, b := range bals {
+			snap.Balances[k][assetId] = b
+		}
+	}
+	// OrderBooks: accessed directly while holding globalMu.Lock().
+	// Concurrent writes to OrderBooks only happen in FinalizeBlock, which is
+	// blocked by the DEXApplication mutex during Commit.
+	for k, v := range s.OrderBooks {
+		snap.OrderBooks[k] = v
+	}
+	s.globalMu.Unlock()
+
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return fmt.Errorf("marshal snapshot: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("mkdir for snapshot: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return fmt.Errorf("write snapshot tmp: %w", err)
+	}
+	return os.Rename(tmp, path)
+}
+
+// LoadSnapshot reads state from a snapshot file written by SaveSnapshot.
+// Returns nil (fresh start) if the file does not exist.
+// Must be called before any concurrent access to AppState.
+func (s *AppState) LoadSnapshot(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read snapshot: %w", err)
+	}
+	var snap appStateSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return fmt.Errorf("unmarshal snapshot: %w", err)
+	}
+
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+
+	s.BlockHeight = snap.BlockHeight
+	if snap.Accounts != nil {
+		s.Accounts = snap.Accounts
+	}
+	if snap.Sessions != nil {
+		s.Sessions = snap.Sessions
+	}
+	if snap.Balances != nil {
+		s.Balances = snap.Balances
+	}
+	if snap.Assets != nil {
+		s.Assets = snap.Assets
+	}
+	if snap.Orders != nil {
+		s.Orders = snap.Orders
+	}
+	if snap.OrderBooks != nil {
+		s.OrderBooks = snap.OrderBooks
+		// Rebuild OrdersById indices from PriceLevels so pointer identity is
+		// consistent, then sync the global Orders map to the same pointers.
+		for _, ob := range s.OrderBooks {
+			ob.RebuildIndex()
+			for id, o := range ob.OrdersById {
+				s.Orders[id] = o
+			}
+		}
+	}
+	return nil
 }
 
 func (s *AppState) AllOrders() []*clob.Order {

@@ -16,6 +16,7 @@ const (
 	TxDeposit
 	TxSubmitOrder
 	TxCancelOrder
+	TxWithdraw
 )
 
 type Transaction struct {
@@ -87,6 +88,11 @@ func computeTxHash(tx Transaction, blockHeight int64) string {
 		// so including the signature would create a circular dependency.
 	case CancelOrderPayload:
 		data += ":" + p.OrderId + ":" + p.AccountId
+	case WithdrawPayload:
+		// Signature excluded — TxHash is the message being signed.
+		data += ":" + p.AccountId + ":" + p.AssetId
+		data += ":" + strconv.FormatInt(p.Amount, 10)
+		data += ":" + strconv.FormatUint(p.AccountSequence, 10)
 	}
 
 	data += ":" + strconv.FormatInt(blockHeight, 10)

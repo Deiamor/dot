@@ -167,7 +167,12 @@ func RunNode(ctx context.Context, rc RunConfig) (Result, error) {
 	dexNode.RegisterAsset(asset.BTC)
 	dexNode.RegisterAsset(asset.USDC)
 
-	dexApp := localabci.NewDEXApplication(dexNode)
+	snapshotPath := filepath.Join(rc.HomeDir, "data", "appstate.json")
+	if err := dexNode.LoadSnapshot(snapshotPath); err != nil {
+		return Result{}, fmt.Errorf("load snapshot: %w", err)
+	}
+
+	dexApp := localabci.NewDEXApplication(dexNode, snapshotPath)
 	adapter := abciserver.NewCometBFTAdapter(dexApp)
 
 	var logger cmtlog.Logger

@@ -97,10 +97,9 @@ func TestMultiNode_ProposerRotation(t *testing.T) {
 	}
 
 	// Block 6: node-2 proposes another BUY.
-	block6 := fairbatch.NewBatchBuilder(6).
-		AddSubmitOrder(simulation.BuildOrder(aliceId, aliceSess, "BTC-USDC",
-			clob.OrderSideBuy, 10_000, 1, 6)).
-		Build()
+	order6 := simulation.BuildOrder(aliceId, aliceSess, "BTC-USDC", clob.OrderSideBuy, 10_000, 1, 6)
+	order6.AccountSequence = cluster.NodeAt(0).GetAccountSequence(aliceId)
+	block6 := fairbatch.NewBatchBuilder(6).AddSubmitOrder(order6).Build()
 	proposer6, err := cluster.ProposeBlockSync(block6)
 	if err != nil {
 		t.Fatalf("block 6: %v", err)
@@ -413,10 +412,9 @@ func TestMultiNode_MultiBlock_DelayedGossip_FinalConvergence(t *testing.T) {
 	}
 
 	// Block 6: BUY 1 more lot.
-	b6 := fairbatch.NewBatchBuilder(6).
-		AddSubmitOrder(simulation.BuildOrder(aliceId, aliceSess, "BTC-USDC",
-			clob.OrderSideBuy, 10_000, 1, 6)).
-		Build()
+	order6b := simulation.BuildOrder(aliceId, aliceSess, "BTC-USDC", clob.OrderSideBuy, 10_000, 1, 6)
+	order6b.AccountSequence = cluster.NodeAt(0).GetAccountSequence(aliceId)
+	b6 := fairbatch.NewBatchBuilder(6).AddSubmitOrder(order6b).Build()
 	if _, err = cluster.ProposeBlockSync(b6); err != nil {
 		t.Fatalf("block 6: %v", err)
 	}

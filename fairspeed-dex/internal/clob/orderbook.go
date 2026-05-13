@@ -103,6 +103,22 @@ func (ob *OrderBook) BestBidLevel() *PriceLevel {
 	return ob.Bids[price]
 }
 
+// RebuildIndex reconstructs OrdersById from the Bids/Asks price levels.
+// Called after snapshot deserialization to restore pointer consistency.
+func (ob *OrderBook) RebuildIndex() {
+	ob.OrdersById = make(map[string]*Order)
+	for _, pl := range ob.Bids {
+		for _, o := range pl.OrderQueue {
+			ob.OrdersById[o.OrderId] = o
+		}
+	}
+	for _, pl := range ob.Asks {
+		for _, o := range pl.OrderQueue {
+			ob.OrdersById[o.OrderId] = o
+		}
+	}
+}
+
 func (ob *OrderBook) BestAskLevel() *PriceLevel {
 	price, ok := ob.BestAsk()
 	if !ok {

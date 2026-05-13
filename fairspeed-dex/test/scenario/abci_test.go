@@ -28,7 +28,7 @@ func newABCIApp(t *testing.T) (*abci.DEXApplication, string, string, string, str
 	n, aliceId, bobId, aliceSess, bobSess := bootstrapNode(t)
 	n.RegisterAsset(asset.BTC)
 	n.RegisterAsset(asset.USDC)
-	app := abci.NewDEXApplication(n)
+	app := abci.NewDEXApplication(n, "")
 	return app, aliceId, bobId, aliceSess, bobSess
 }
 
@@ -51,7 +51,7 @@ func encodeTxs(t *testing.T, txs []fairbatch.Transaction) [][]byte {
 // -------------------------------------------------------------------------
 func TestABCI_Info(t *testing.T) {
 	n := node.NewLocalNode()
-	app := abci.NewDEXApplication(n)
+	app := abci.NewDEXApplication(n, "")
 
 	info := app.Info(abci.RequestInfo{})
 	if info.LastBlockHeight != 0 {
@@ -67,7 +67,7 @@ func TestABCI_Info(t *testing.T) {
 // -------------------------------------------------------------------------
 func TestABCI_InitChain(t *testing.T) {
 	n := node.NewLocalNode()
-	app := abci.NewDEXApplication(n)
+	app := abci.NewDEXApplication(n, "")
 
 	resp := app.InitChain(abci.RequestInitChain{ChainId: "fairspeed-1", InitialHeight: 1})
 	if len(resp.AppHash) == 0 {

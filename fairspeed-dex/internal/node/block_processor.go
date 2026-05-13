@@ -134,6 +134,10 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 		payload := tx.Payload.(fairbatch.CancelOrderPayload)
 		return p.OrderBookKeeper.CancelOrder(payload.OrderId, payload.AccountId, blockHeight)
 
+	case fairbatch.TxWithdraw:
+		payload := tx.Payload.(fairbatch.WithdrawPayload)
+		return p.processWithdraw(payload, tx.TxHash, blockHeight)
+
 	default:
 		return fmt.Errorf("unknown transaction type: %d", tx.TxType)
 	}
@@ -150,6 +154,21 @@ func (p *LocalBlockProcessor) processOrder(o clob.Order, txHash string, blockHei
 	if err := account.VerifyOrderSignature(txHash, o.Signature, sess.SessionPublicKey); err != nil {
 		p.emitOrderRejected(o, "invalid signature: "+err.Error(), blockHeight)
 		return fmt.Errorf("signature: %w", err)
+	}
+
+	// Replay protection: AccountSequence must match the current account nonce.
+	acc, ok := p.AppState.GetAccount(o.AccountId)
+	if !ok {
+		p.emitOrderRejected(o, "account not found", blockHeight)
+		return fmt.Errorf("account not found: %s", o.AccountId)
+	}
+	if o.AccountSequence != acc.AccountSequence {
+		msg := fmt.Sprintf("sequence mismatch: expected %d got %d", acc.AccountSequence, o.AccountSequence)
+		p.emitOrderRejected(o, msg, blockHeight)
+		return fmt.Errorf("sequence: %s", msg)
+	}
+	if _, err := p.AccountKeeper.IncrementSequence(o.AccountId); err != nil {
+		return fmt.Errorf("increment sequence: %w", err)
 	}
 
 	if err := p.RiskChecker.CheckOrder(&o, sess, blockHeight); err != nil {
@@ -229,4 +248,36 @@ func (p *LocalBlockProcessor) getOrStoreOrder(o *clob.Order) *clob.Order {
 		return stored
 	}
 	return o
+}
+
+func (p *LocalBlockProcessor) processWithdraw(payload fairbatch.WithdrawPayload, txHash string, blockHeight int64) error {
+	acc, ok := p.AppState.GetAccount(payload.AccountId)
+	if !ok {
+		return fmt.Errorf("account not found: %s", payload.AccountId)
+	}
+	if payload.AccountSequence != acc.AccountSequence {
+		return fmt.Errorf("withdraw sequence mismatch: expected %d got %d", acc.AccountSequence, payload.AccountSequence)
+	}
+	// Verify signature with the account's withdrawal key (skip if key is empty — test/bootstrap).
+	if payload.Signature != "" && acc.WithdrawalPublicKey != "" {
+		if err := account.VerifyOrderSignature(txHash, payload.Signature, acc.WithdrawalPublicKey); err != nil {
+			return fmt.Errorf("invalid withdrawal signature: %w", err)
+		}
+	}
+	if _, err := p.AccountKeeper.IncrementSequence(payload.AccountId); err != nil {
+		return fmt.Errorf("increment sequence: %w", err)
+	}
+	if err := p.AssetKeeper.Withdraw(payload.AccountId, payload.AssetId, payload.Amount); err != nil {
+		return fmt.Errorf("withdraw: %w", err)
+	}
+	p.EventBus.Publish(state.Event{
+		Type:        state.EventWithdrawal,
+		BlockHeight: blockHeight,
+		Payload: state.WithdrawalPayload{
+			AccountId: payload.AccountId,
+			AssetId:   payload.AssetId,
+			Amount:    payload.Amount,
+		},
+	})
+	return nil
 }

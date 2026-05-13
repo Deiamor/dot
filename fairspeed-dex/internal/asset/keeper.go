@@ -99,3 +99,11 @@ func (k *AssetKeeper) CreditAvailable(accountId, assetId string, amount int64) {
 	b.Available += amount
 	k.store.SetBalance(&b)
 }
+
+// Withdraw deducts from Available (user-initiated withdrawal from the chain).
+func (k *AssetKeeper) Withdraw(accountId, assetId string, amount int64) error {
+	if amount <= 0 {
+		return fmt.Errorf("withdraw amount must be positive")
+	}
+	return k.DeductAvailable(accountId, assetId, amount)
+}

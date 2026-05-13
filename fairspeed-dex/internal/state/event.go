@@ -18,6 +18,7 @@ const (
 	EventBalanceUpdated EventType = "BALANCE_UPDATED"
 	EventFeeCharged     EventType = "FEE_CHARGED"
 	EventBlockProcessed EventType = "BLOCK_PROCESSED"
+	EventWithdrawal     EventType = "WITHDRAWAL"
 
 	EventAll EventType = "*"
 )
@@ -119,4 +120,10 @@ type BlockProcessedPayload struct {
 	BlockHeight int64
 	TxCount     int
 	TradeCount  int
+}
+
+type WithdrawalPayload struct {
+	AccountId string
+	AssetId   string
+	Amount    int64
 }

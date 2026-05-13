@@ -151,3 +151,27 @@ func (n *LocalNode) SubmitOrderImmediate(o clob.Order) (BlockResult, error) {
 func (n *LocalNode) Publish(e state.Event) {
 	n.bus.Publish(e)
 }
+
+// GetSession returns the TradingSession for sessionId.
+func (n *LocalNode) GetSession(sessionId string) (*account.TradingSession, bool) {
+	return n.AppState.GetSession(sessionId)
+}
+
+// GetAccountSequence returns the current sequence number for accountId (0 if not found).
+func (n *LocalNode) GetAccountSequence(accountId string) uint64 {
+	acc, ok := n.AppState.GetAccount(accountId)
+	if !ok {
+		return 0
+	}
+	return acc.AccountSequence
+}
+
+// SaveSnapshot persists the current state to the given file path.
+func (n *LocalNode) SaveSnapshot(path string) error {
+	return n.AppState.SaveSnapshot(path)
+}
+
+// LoadSnapshot restores state from a previously saved snapshot file.
+func (n *LocalNode) LoadSnapshot(path string) error {
+	return n.AppState.LoadSnapshot(path)
+}

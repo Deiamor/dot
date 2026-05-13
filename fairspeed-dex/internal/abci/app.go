@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
 	"github.com/byunghee1994/fairspeed-dex/internal/node"
@@ -17,22 +18,25 @@ import (
 // protocol to the DEX LocalNode. In production, a CometBFT node calls
 // these methods; in tests, we call them directly.
 type DEXApplication struct {
-	mu          sync.Mutex
-	node        *node.LocalNode
-	lastAppHash []byte
+	mu           sync.RWMutex
+	node         *node.LocalNode
+	lastAppHash  []byte
+	snapshotPath string // empty = no persistence
 }
 
 var _ Application = (*DEXApplication)(nil)
 
-func NewDEXApplication(n *node.LocalNode) *DEXApplication {
-	return &DEXApplication{node: n}
+// NewDEXApplication creates the ABCI application. Pass an empty snapshotPath
+// to disable crash-recovery persistence (demo / test mode).
+func NewDEXApplication(n *node.LocalNode, snapshotPath string) *DEXApplication {
+	return &DEXApplication{node: n, snapshotPath: snapshotPath}
 }
 
 // Info returns the application version and the last committed block state.
 // CometBFT calls this on startup to sync its view of the chain height.
 func (a *DEXApplication) Info(_ RequestInfo) ResponseInfo {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return ResponseInfo{
 		AppVersion:       1,
 		LastBlockHeight:  a.node.CurrentHeight(),
@@ -52,7 +56,9 @@ func (a *DEXApplication) InitChain(req RequestInitChain) ResponseInitChain {
 }
 
 // CheckTx is the mempool gate: lightweight validation before a tx is gossiped.
-// It does NOT modify state.
+// It does NOT modify state. For TxSubmitOrder, it also verifies the ed25519
+// signature using the session key stored in AppState (best-effort — if the
+// session key is empty, verification is skipped as in test/bootstrap mode).
 func (a *DEXApplication) CheckTx(req RequestCheckTx) ResponseCheckTx {
 	tx, err := DecodeTx(req.Tx)
 	if err != nil {
@@ -61,6 +67,18 @@ func (a *DEXApplication) CheckTx(req RequestCheckTx) ResponseCheckTx {
 	if err := validateTxBasic(tx); err != nil {
 		return ResponseCheckTx{Code: CodeError, Log: err.Error()}
 	}
+
+	// Signature verification for order submissions (best-effort with wire TxHash).
+	if tx.TxType == fairbatch.TxSubmitOrder {
+		p := tx.Payload.(fairbatch.SubmitOrderPayload)
+		o := p.Order
+		if sess, ok := a.node.GetSession(o.SessionId); ok && sess != nil && sess.SessionPublicKey != "" {
+			if err := account.VerifyOrderSignature(tx.TxHash, o.Signature, sess.SessionPublicKey); err != nil {
+				return ResponseCheckTx{Code: CodeError, Log: "invalid signature: " + err.Error()}
+			}
+		}
+	}
+
 	return ResponseCheckTx{Code: CodeOK}
 }
 
@@ -170,9 +188,14 @@ func (a *DEXApplication) FinalizeBlock(req RequestFinalizeBlock) ResponseFinaliz
 	return ResponseFinalizeBlock{TxResults: results, AppHash: hash}
 }
 
-// Commit signals that the block has been committed. We persist the last app hash.
-// In production, this would flush WAL / snapshot state.
+// Commit signals that the block has been committed. Persists a state snapshot
+// to disk when snapshotPath is configured.
 func (a *DEXApplication) Commit(_ RequestCommit) ResponseCommit {
+	if a.snapshotPath != "" {
+		if err := a.node.SaveSnapshot(a.snapshotPath); err != nil {
+			fmt.Printf("snapshot save failed: %v\n", err)
+		}
+	}
 	return ResponseCommit{RetainHeight: 0}
 }
 
@@ -279,6 +302,11 @@ func validateTxBasic(tx fairbatch.Transaction) error {
 		p := tx.Payload.(fairbatch.CancelOrderPayload)
 		if p.OrderId == "" || p.AccountId == "" {
 			return fmt.Errorf("CancelOrder: missing order or account ID")
+		}
+	case fairbatch.TxWithdraw:
+		p := tx.Payload.(fairbatch.WithdrawPayload)
+		if p.AccountId == "" || p.AssetId == "" || p.Amount <= 0 {
+			return fmt.Errorf("Withdraw: invalid fields")
 		}
 	}
 	return nil

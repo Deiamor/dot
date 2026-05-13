@@ -140,17 +140,17 @@ func TestByzantine_DoubleSign_EvidenceRecorded(t *testing.T) {
 // -------------------------------------------------------------------------
 func TestByzantine_ProposeShuffled_PeersDiverge(t *testing.T) {
 	cluster := simulation.NewNodeCluster(3)
-	_, bobId, _, bobSess, err := simulation.BootstrapCluster(cluster, "alice", "bob")
+	aliceId, bobId, aliceSess, bobSess, err := simulation.BootstrapCluster(cluster, "alice", "bob")
 	if err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
 
-	// Prepare an honest batch with two distinct orders.
-	sell1 := simulation.BuildOrder(bobId, bobSess, "BTC-USDC", clob.OrderSideSell, 10_000, 1, 4)
-	sell2 := simulation.BuildOrder(bobId, bobSess, "BTC-USDC", clob.OrderSideSell, 11_000, 1, 4)
+	// Prepare an honest batch with two distinct orders from different accounts.
+	sell := simulation.BuildOrder(bobId, bobSess, "BTC-USDC", clob.OrderSideSell, 10_000, 1, 4)
+	buy := simulation.BuildOrder(aliceId, aliceSess, "BTC-USDC", clob.OrderSideBuy, 9_000, 1, 4)
 	honest := fairbatch.NewBatchBuilder(4).
-		AddSubmitOrder(sell1).
-		AddSubmitOrder(sell2).
+		AddSubmitOrder(sell).
+		AddSubmitOrder(buy).
 		Build()
 
 	// Byzantine proposer = node-0; peers = node-1, node-2.

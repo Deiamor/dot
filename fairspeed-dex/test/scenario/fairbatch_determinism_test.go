@@ -118,12 +118,12 @@ func TestFairBatchDeterminism(t *testing.T) {
 			sell := clob.NewLimitOrder(bobId, bobSess, "BTC-USDC",
 				clob.OrderSideSell, 10_000, 1, clob.TimeInForceGtc, 4)
 			sell.ClientOrderId = "bob-sell-1"
-			sell.AccountSequence = 1
+			sell.AccountSequence = 0
 
 			buy := clob.NewLimitOrder(aliceId, aliceSess, "BTC-USDC",
 				clob.OrderSideBuy, 10_000, 1, clob.TimeInForceGtc, 4)
 			buy.ClientOrderId = "alice-buy-1"
-			buy.AccountSequence = 1
+			buy.AccountSequence = 0
 			return sell, buy
 		}
 

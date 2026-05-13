@@ -230,7 +230,7 @@ func runDemoCmd(args []string) {
 		})
 	}
 
-	app := abci.NewDEXApplication(n)
+	app := abci.NewDEXApplication(n, "")
 	initResp := app.InitChain(abci.RequestInitChain{
 		ChainId:       *chainId,
 		InitialHeight: 1,

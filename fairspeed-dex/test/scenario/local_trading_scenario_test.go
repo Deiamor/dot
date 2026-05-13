@@ -181,6 +181,7 @@ func TestLocalTradingScenario(t *testing.T) {
 		resetEvents()
 		bobSellOrder := clob.NewLimitOrder(bobId, bobSessionId, "BTC-USDC",
 			clob.OrderSideSell, 10_000, 1, clob.TimeInForceGtc, 4)
+		bobSellOrder.AccountSequence = n.GetAccountSequence(bobId)
 
 		batch := fairbatch.NewBatchBuilder(4).
 			AddSubmitOrder(bobSellOrder).
@@ -203,6 +204,7 @@ func TestLocalTradingScenario(t *testing.T) {
 		resetEvents()
 		aliceBuyOrder := clob.NewLimitOrder(aliceId, aliceSessionId, "BTC-USDC",
 			clob.OrderSideBuy, 10_000, 1, clob.TimeInForceGtc, 5)
+		aliceBuyOrder.AccountSequence = n.GetAccountSequence(aliceId)
 
 		batch := fairbatch.NewBatchBuilder(5).
 			AddSubmitOrder(aliceBuyOrder).
@@ -273,6 +275,7 @@ func TestLocalTradingScenario(t *testing.T) {
 		// Bob places SELL 2 lots.
 		bobSellOrder2 := clob.NewLimitOrder(bobId, bobSessionId, "BTC-USDC",
 			clob.OrderSideSell, 10_000, 2, clob.TimeInForceGtc, 7)
+		bobSellOrder2.AccountSequence = n.GetAccountSequence(bobId)
 		batch7 := fairbatch.NewBatchBuilder(7).
 			AddSubmitOrder(bobSellOrder2).
 			Build()
@@ -283,6 +286,7 @@ func TestLocalTradingScenario(t *testing.T) {
 		// Alice places BUY 1 lot.
 		aliceBuyOrder2 := clob.NewLimitOrder(aliceId, aliceSessionId, "BTC-USDC",
 			clob.OrderSideBuy, 10_000, 1, clob.TimeInForceGtc, 8)
+		aliceBuyOrder2.AccountSequence = n.GetAccountSequence(aliceId)
 		resetEvents()
 		result, err := n.SubmitBatch(fairbatch.NewBatchBuilder(8).AddSubmitOrder(aliceBuyOrder2).Build())
 		if err != nil {

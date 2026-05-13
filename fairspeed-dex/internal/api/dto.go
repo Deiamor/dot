@@ -1,6 +1,9 @@
 package api
 
-import "github.com/byunghee1994/fairspeed-dex/internal/settlement"
+import (
+	"github.com/byunghee1994/fairspeed-dex/internal/settlement"
+	"github.com/byunghee1994/fairspeed-dex/internal/state"
+)
 
 // SubmitOrderRequest is the JSON body for POST /orders.
 type SubmitOrderRequest struct {
@@ -46,6 +49,14 @@ type OrderBookResponse struct {
 	Asks     []PriceLevelResponse `json:"asks"`
 }
 
+// AccountResponse is returned by GET /accounts/{accountId}.
+type AccountResponse struct {
+	AccountId       string `json:"account_id"`
+	OwnerAddress    string `json:"owner_address"`
+	Status          string `json:"status"`
+	AccountSequence uint64 `json:"account_sequence"`
+}
+
 // TradeResponse is a single executed trade.
 type TradeResponse struct {
 	TradeId        string `json:"trade_id"`
@@ -70,5 +81,18 @@ func tradeToResponse(t settlement.TradeExecution) TradeResponse {
 		MakerFeeAmount: t.MakerFeeAmount,
 		TakerFeeAmount: t.TakerFeeAmount,
 		BlockHeight:    t.BlockHeight,
+	}
+}
+
+func tradePayloadToResponse(p state.TradeExecutedPayload) TradeResponse {
+	return TradeResponse{
+		TradeId:        p.TradeId,
+		MarketId:       p.MarketId,
+		MakerOrderId:   p.MakerOrderId,
+		TakerOrderId:   p.TakerOrderId,
+		Price:          p.Price,
+		Quantity:       p.Quantity,
+		MakerFeeAmount: p.MakerFeeAmount,
+		TakerFeeAmount: p.TakerFeeAmount,
 	}
 }

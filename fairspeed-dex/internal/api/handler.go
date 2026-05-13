@@ -7,6 +7,30 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
 )
 
+// handleGetAccount handles GET /accounts/{accountId}
+func (s *Server) handleGetAccount(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	accountId := pathSuffix(r.URL.Path, "/accounts/")
+	if accountId == "" {
+		writeError(w, http.StatusBadRequest, "accountId required")
+		return
+	}
+	acc, ok := s.node.AppState.GetAccount(accountId)
+	if !ok {
+		writeError(w, http.StatusNotFound, "account not found: "+accountId)
+		return
+	}
+	writeJSON(w, http.StatusOK, AccountResponse{
+		AccountId:       acc.AccountId,
+		OwnerAddress:    acc.OwnerAddress,
+		Status:          string(acc.Status),
+		AccountSequence: acc.AccountSequence,
+	})
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -50,6 +74,7 @@ func (s *Server) handleSubmitOrder(w http.ResponseWriter, r *http.Request) {
 	order := clob.NewLimitOrder(req.AccountId, req.SessionId, req.MarketId,
 		side, req.Price, req.Quantity, tif, nextHeight)
 	order.ClientOrderId = req.ClientOrderId
+	order.AccountSequence = s.node.GetAccountSequence(req.AccountId)
 
 	s.node.NotifyOrderReceived(order.OrderId, req.AccountId, req.SessionId,
 		req.MarketId, req.Side, "", req.Price, req.Quantity)

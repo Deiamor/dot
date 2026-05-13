@@ -74,6 +74,10 @@ func DecodeTx(raw []byte) (fairbatch.Transaction, error) {
 		var p fairbatch.CancelOrderPayload
 		err = json.Unmarshal(wire.Payload, &p)
 		tx.Payload = p
+	case fairbatch.TxWithdraw:
+		var p fairbatch.WithdrawPayload
+		err = json.Unmarshal(wire.Payload, &p)
+		tx.Payload = p
 	default:
 		return tx, fmt.Errorf("unknown tx type: %d", wire.TxType)
 	}

@@ -114,6 +114,7 @@ func TestOrderLifecycle(t *testing.T) {
 
 		restOrder := clob.NewLimitOrder(bobId, bobSession, "BTC-USDC",
 			clob.OrderSideSell, 20_000, 1, clob.TimeInForceGtc, 7)
+		restOrder.AccountSequence = n.GetAccountSequence(bobId)
 		n.NotifyOrderReceived(restOrder.OrderId, bobId, bobSession, "BTC-USDC",
 			string(clob.OrderSideSell), "tx-hash-rest", 20_000, 1)
 
@@ -148,6 +149,7 @@ func TestOrderLifecycle(t *testing.T) {
 		expireOrder := clob.NewLimitOrder(bobId, bobSession, "BTC-USDC",
 			clob.OrderSideSell, 30_000, 1, clob.TimeInForceGtc, 10)
 		expireOrder.ExpireBlockHeight = 11 // expires at block 11
+		expireOrder.AccountSequence = n.GetAccountSequence(bobId)
 
 		n.NotifyOrderReceived(expireOrder.OrderId, bobId, bobSession, "BTC-USDC",
 			string(clob.OrderSideSell), "tx-hash-expire", 30_000, 1)

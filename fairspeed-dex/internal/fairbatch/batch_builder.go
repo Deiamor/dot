@@ -33,6 +33,14 @@ type CancelOrderPayload struct {
 	AccountId string
 }
 
+type WithdrawPayload struct {
+	AccountId       string
+	AssetId         string
+	Amount          int64
+	AccountSequence uint64
+	Signature       string // signed by WithdrawalPublicKey over TxHash
+}
+
 type BatchBuilder struct {
 	blockHeight int64
 	txs         []Transaction
@@ -87,6 +95,21 @@ func (b *BatchBuilder) AddCancelOrder(orderId, accountId string) *BatchBuilder {
 		TxType:    TxCancelOrder,
 		AccountId: accountId,
 		Payload:   CancelOrderPayload{OrderId: orderId, AccountId: accountId},
+	})
+	return b
+}
+
+func (b *BatchBuilder) AddWithdraw(accountId, assetId string, amount int64, seq uint64, sig string) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:    TxWithdraw,
+		AccountId: accountId,
+		Payload: WithdrawPayload{
+			AccountId:       accountId,
+			AssetId:         assetId,
+			Amount:          amount,
+			AccountSequence: seq,
+			Signature:       sig,
+		},
 	})
 	return b
 }
