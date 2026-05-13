@@ -39,6 +39,9 @@ const (
 	EventWithdrawFinalized      EventType = "WITHDRAW_FINALIZED"
 	EventFeeDistributed         EventType = "FEE_DISTRIBUTED"
 
+	EventBridgeAttested  EventType = "BRIDGE_ATTESTED"
+	EventBridgeCompleted EventType = "BRIDGE_COMPLETED"
+
 	EventAll EventType = "*"
 )
 
@@ -248,6 +251,24 @@ type WithdrawFinalizedPayload struct {
 // FeeDistributedPayload describes a single fee distribution to one validator.
 type FeeDistributedPayload struct {
 	ValidatorId string
+	AssetId     string
+	Amount      int64
+	BlockHeight int64
+}
+
+// BridgeAttestedPayload is emitted when a validator attests a cross-chain deposit.
+type BridgeAttestedPayload struct {
+	DepositId      string
+	ValidatorId    string
+	AttestedStake  int64
+	TotalStake     int64
+	BlockHeight    int64
+}
+
+// BridgeCompletedPayload is emitted when a bridge deposit reaches ⅔ quorum and funds are credited.
+type BridgeCompletedPayload struct {
+	DepositId   string
+	AccountId   string
 	AssetId     string
 	Amount      int64
 	BlockHeight int64

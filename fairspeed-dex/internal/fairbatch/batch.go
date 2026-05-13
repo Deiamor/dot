@@ -28,6 +28,7 @@ const (
 	TxResumeMarket
 	TxSubmitPrice
 	TxWithdrawRequest
+	TxBridgeAttest
 )
 
 type Transaction struct {
@@ -136,6 +137,11 @@ func computeTxHash(tx Transaction, blockHeight int64) string {
 		data += ":" + p.AccountId + ":" + p.AssetId
 		data += ":" + strconv.FormatInt(p.Amount, 10)
 		data += ":" + strconv.FormatUint(p.AccountSequence, 10)
+	case BridgeAttestPayload:
+		data += ":" + p.DepositId + ":" + p.ValidatorId
+		data += ":" + p.AccountId + ":" + p.AssetId
+		data += ":" + strconv.FormatInt(p.Amount, 10)
+		data += ":" + p.SourceChain
 	}
 
 	data += ":" + strconv.FormatInt(blockHeight, 10)

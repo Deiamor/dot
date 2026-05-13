@@ -7,6 +7,7 @@ import (
 
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
+	"github.com/byunghee1994/fairspeed-dex/internal/bridge"
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
 	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
@@ -285,6 +286,10 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 		payload := tx.Payload.(fairbatch.WithdrawRequestPayload)
 		return p.processWithdrawRequest(payload, tx.TxHash, blockHeight)
 
+	case fairbatch.TxBridgeAttest:
+		payload := tx.Payload.(fairbatch.BridgeAttestPayload)
+		return p.processBridgeAttest(payload, blockHeight)
+
 	default:
 		return fmt.Errorf("unknown transaction type: %d", tx.TxType)
 	}
@@ -530,6 +535,67 @@ func (p *LocalBlockProcessor) processWithdraw(payload fairbatch.WithdrawPayload,
 			Amount:    payload.Amount,
 		},
 	})
+	return nil
+}
+
+// processBridgeAttest handles TxBridgeAttest: records a validator's cross-chain deposit
+// attestation. When ⅔ quorum is reached for the first time, funds are credited.
+func (p *LocalBlockProcessor) processBridgeAttest(payload fairbatch.BridgeAttestPayload, blockHeight int64) error {
+	if p.ValidatorKeeper == nil {
+		return fmt.Errorf("validator keeper not configured")
+	}
+
+	// Verify the attesting validator is bonded.
+	v, ok := p.ValidatorKeeper.GetValidator(payload.ValidatorId)
+	if !ok || v.Status != validator.StatusBonded {
+		return fmt.Errorf("validator %s is not bonded", payload.ValidatorId)
+	}
+
+	totalStake := p.ValidatorKeeper.TotalStake()
+
+	deposit := bridge.BridgeDeposit{
+		DepositId:   payload.DepositId,
+		AccountId:   payload.AccountId,
+		AssetId:     payload.AssetId,
+		Amount:      payload.Amount,
+		SourceChain: payload.SourceChain,
+	}
+
+	attestedStake, alreadyCompleted := p.AppState.RecordAttestation(deposit, payload.ValidatorId, v.Stake)
+	if alreadyCompleted {
+		return nil // idempotent — quorum already reached previously
+	}
+
+	p.EventBus.Publish(state.Event{
+		Type:        state.EventBridgeAttested,
+		BlockHeight: blockHeight,
+		Payload: state.BridgeAttestedPayload{
+			DepositId:     payload.DepositId,
+			ValidatorId:   payload.ValidatorId,
+			AttestedStake: attestedStake,
+			TotalStake:    totalStake,
+			BlockHeight:   blockHeight,
+		},
+	})
+
+	if bridge.QuorumReached(attestedStake, totalStake) {
+		// Credit funds and mark deposit as complete.
+		if err := p.AssetKeeper.Deposit(payload.AccountId, payload.AssetId, payload.Amount); err != nil {
+			return fmt.Errorf("bridge deposit credit: %w", err)
+		}
+		p.AppState.CompleteBridgeDeposit(payload.DepositId)
+		p.EventBus.Publish(state.Event{
+			Type:        state.EventBridgeCompleted,
+			BlockHeight: blockHeight,
+			Payload: state.BridgeCompletedPayload{
+				DepositId:   payload.DepositId,
+				AccountId:   payload.AccountId,
+				AssetId:     payload.AssetId,
+				Amount:      payload.Amount,
+				BlockHeight: blockHeight,
+			},
+		})
+	}
 	return nil
 }
 

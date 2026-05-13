@@ -9,6 +9,7 @@ import (
 
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
+	"github.com/byunghee1994/fairspeed-dex/internal/bridge"
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
 	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
@@ -46,6 +47,8 @@ type AppState struct {
 	OraclePrices        map[string]map[string]*oracle.PriceSubmission     // marketId → validatorId → submission
 	OrdersThisBlock     map[string]int64                                  // accountId → orders submitted this block
 	PendingWithdrawals  map[string]*account.PendingWithdrawal             // withdrawalId → pending withdrawal
+	BridgeDeposits      map[string]*bridge.BridgeDeposit                  // depositId → deposit
+	BridgeAttestations  map[string]map[string]int64                       // depositId → validatorId → stake
 	BlockHeight         int64
 }
 
@@ -65,6 +68,8 @@ func NewAppState() *AppState {
 		OraclePrices:       make(map[string]map[string]*oracle.PriceSubmission),
 		OrdersThisBlock:    make(map[string]int64),
 		PendingWithdrawals: make(map[string]*account.PendingWithdrawal),
+		BridgeDeposits:     make(map[string]*bridge.BridgeDeposit),
+		BridgeAttestations: make(map[string]map[string]int64),
 	}
 }
 
@@ -530,6 +535,76 @@ func (s *AppState) AllPendingWithdrawalsForAccount(accountId string) []account.P
 	return result
 }
 
+// ---- cross-chain bridge ---------------------------------------------------
+
+// GetBridgeDeposit returns the deposit record for depositId (nil,false if not found).
+func (s *AppState) GetBridgeDeposit(depositId string) (*bridge.BridgeDeposit, bool) {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	d, ok := s.BridgeDeposits[depositId]
+	return d, ok
+}
+
+// HasAttested returns true if validatorId has already attested depositId.
+func (s *AppState) HasAttested(depositId, validatorId string) bool {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	atts, ok := s.BridgeAttestations[depositId]
+	if !ok {
+		return false
+	}
+	_, attested := atts[validatorId]
+	return attested
+}
+
+// RecordAttestation records a validator's attestation for a deposit and returns
+// the updated AttestedStake. It upserts the BridgeDeposit record if needed.
+// Returns (attestedStake, alreadyCompleted, isNewAttestation).
+func (s *AppState) RecordAttestation(deposit bridge.BridgeDeposit, validatorId string, validatorStake int64) (int64, bool) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+
+	// If already completed, no-op.
+	if d, ok := s.BridgeDeposits[deposit.DepositId]; ok && d.Completed {
+		return d.AttestedStake, true
+	}
+
+	// Init attestation map for this deposit.
+	if _, ok := s.BridgeAttestations[deposit.DepositId]; !ok {
+		s.BridgeAttestations[deposit.DepositId] = make(map[string]int64)
+	}
+
+	// Idempotent: ignore duplicate attestation from same validator.
+	if _, already := s.BridgeAttestations[deposit.DepositId][validatorId]; already {
+		d := s.BridgeDeposits[deposit.DepositId]
+		return d.AttestedStake, false
+	}
+
+	s.BridgeAttestations[deposit.DepositId][validatorId] = validatorStake
+
+	// Accumulate attested stake.
+	var total int64
+	for _, stake := range s.BridgeAttestations[deposit.DepositId] {
+		total += stake
+	}
+
+	// Upsert the deposit record.
+	cp := deposit
+	cp.AttestedStake = total
+	s.BridgeDeposits[deposit.DepositId] = &cp
+
+	return total, false
+}
+
+// CompleteBridgeDeposit marks a deposit as completed (funds already credited).
+func (s *AppState) CompleteBridgeDeposit(depositId string) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	if d, ok := s.BridgeDeposits[depositId]; ok {
+		d.Completed = true
+	}
+}
+
 // ---- snapshot persistence ---------------------------------------------------
 
 type appStateSnapshot struct {
@@ -547,6 +622,8 @@ type appStateSnapshot struct {
 	Markets            map[string]*clob.MarketInfo                       `json:"markets,omitempty"`
 	OraclePrices       map[string]map[string]*oracle.PriceSubmission     `json:"oracle_prices,omitempty"`
 	PendingWithdrawals map[string]*account.PendingWithdrawal             `json:"pending_withdrawals,omitempty"`
+	BridgeDeposits     map[string]*bridge.BridgeDeposit                  `json:"bridge_deposits,omitempty"`
+	BridgeAttestations map[string]map[string]int64                       `json:"bridge_attestations,omitempty"`
 }
 
 // SaveSnapshot serialises the current state to disk atomically (write-then-rename).
@@ -569,6 +646,8 @@ func (s *AppState) SaveSnapshot(path string) error {
 		Markets:            make(map[string]*clob.MarketInfo, len(s.Markets)),
 		OraclePrices:       make(map[string]map[string]*oracle.PriceSubmission, len(s.OraclePrices)),
 		PendingWithdrawals: make(map[string]*account.PendingWithdrawal, len(s.PendingWithdrawals)),
+		BridgeDeposits:     make(map[string]*bridge.BridgeDeposit, len(s.BridgeDeposits)),
+		BridgeAttestations: make(map[string]map[string]int64, len(s.BridgeAttestations)),
 	}
 	for k, v := range s.Accounts {
 		snap.Accounts[k] = v
@@ -620,6 +699,16 @@ func (s *AppState) SaveSnapshot(path string) error {
 	}
 	for k, v := range s.PendingWithdrawals {
 		snap.PendingWithdrawals[k] = v
+	}
+	for k, v := range s.BridgeDeposits {
+		snap.BridgeDeposits[k] = v
+	}
+	for depositId, atts := range s.BridgeAttestations {
+		cp := make(map[string]int64, len(atts))
+		for vid, stake := range atts {
+			cp[vid] = stake
+		}
+		snap.BridgeAttestations[depositId] = cp
 	}
 	s.globalMu.Unlock()
 
@@ -703,6 +792,12 @@ func (s *AppState) LoadSnapshot(path string) error {
 	}
 	if snap.PendingWithdrawals != nil {
 		s.PendingWithdrawals = snap.PendingWithdrawals
+	}
+	if snap.BridgeDeposits != nil {
+		s.BridgeDeposits = snap.BridgeDeposits
+	}
+	if snap.BridgeAttestations != nil {
+		s.BridgeAttestations = snap.BridgeAttestations
 	}
 	return nil
 }

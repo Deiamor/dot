@@ -345,6 +345,32 @@ func (b *BatchBuilder) AddWithdrawRequest(accountId, assetId string, amount int6
 	return b
 }
 
+// BridgeAttestPayload carries a validator's attestation for a cross-chain deposit.
+type BridgeAttestPayload struct {
+	DepositId   string
+	AccountId   string // destination account on the DEX
+	AssetId     string
+	Amount      int64
+	SourceChain string
+	ValidatorId string
+}
+
+// AddBridgeAttest appends a cross-chain bridge attestation to the batch.
+func (b *BatchBuilder) AddBridgeAttest(depositId, accountId, assetId string, amount int64, sourceChain, validatorId string) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType: TxBridgeAttest,
+		Payload: BridgeAttestPayload{
+			DepositId:   depositId,
+			AccountId:   accountId,
+			AssetId:     assetId,
+			Amount:      amount,
+			SourceChain: sourceChain,
+			ValidatorId: validatorId,
+		},
+	})
+	return b
+}
+
 func (b *BatchBuilder) Build() FairBatch {
 	sorted, batchHash := SortAndHash(b.txs, b.blockHeight)
 	return FairBatch{

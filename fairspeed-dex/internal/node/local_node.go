@@ -5,6 +5,7 @@ import (
 
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
+	"github.com/byunghee1994/fairspeed-dex/internal/bridge"
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
 	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
@@ -357,6 +358,11 @@ func (n *LocalNode) GetInsuranceFundBalance(assetId string) int64 {
 // GetPosition returns the net position for an account in a market.
 func (n *LocalNode) GetPosition(accountId, marketId string) risk.NetPosition {
 	return n.positionTracker.Get(accountId, marketId)
+}
+
+// GetBridgeDeposit returns the bridge deposit record for depositId.
+func (n *LocalNode) GetBridgeDeposit(depositId string) (*bridge.BridgeDeposit, bool) {
+	return n.AppState.GetBridgeDeposit(depositId)
 }
 
 // SaveSnapshot persists the current state to the given file path.
