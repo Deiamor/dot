@@ -76,13 +76,25 @@ func (k *AccountKeeper) ValidateSession(sessionId, marketId string, blockHeight 
 	return sess, nil
 }
 
-// UpdateKYCStatus sets the KYC status for an account and publishes the event.
+// UpdateKYCStatus sets the KYC status, tier, and jurisdiction for an account.
+// tier == 0 leaves the existing tier unchanged; jurisdiction == "" leaves it unchanged.
 func (k *AccountKeeper) UpdateKYCStatus(accountId string, status KYCStatus, blockHeight int64) error {
+	return k.UpdateKYCFull(accountId, status, 0, "", blockHeight)
+}
+
+// UpdateKYCFull sets KYC status, tier, and jurisdiction in one operation.
+func (k *AccountKeeper) UpdateKYCFull(accountId string, status KYCStatus, tier KYCTier, jurisdiction Jurisdiction, blockHeight int64) error {
 	acc, ok := k.store.GetAccount(accountId)
 	if !ok {
 		return fmt.Errorf("account not found: %s", accountId)
 	}
 	acc.KYCStatus = status
+	if tier != KYCTierNone {
+		acc.KYCTier = tier
+	}
+	if jurisdiction != "" {
+		acc.Jurisdiction = jurisdiction
+	}
 	k.store.SetAccount(acc)
 	k.bus.PublishKYCStatusUpdated(accountId, string(status), blockHeight)
 	return nil

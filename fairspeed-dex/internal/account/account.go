@@ -22,6 +22,27 @@ const (
 	KYCStatusExempt   KYCStatus = "EXEMPT"   // test / bootstrap — always allowed
 )
 
+// KYCTier represents the depth of identity verification completed.
+// Higher tiers unlock larger trade limits.
+type KYCTier int
+
+const (
+	KYCTierNone KYCTier = 0 // no verification (PENDING / REVOKED)
+	KYCTier1    KYCTier = 1 // basic — name + ID document
+	KYCTier2    KYCTier = 2 // enhanced — address + source of funds
+	KYCTier3    KYCTier = 3 // institutional / accredited investor
+)
+
+// Jurisdiction tags the regulatory regime applicable to an account.
+type Jurisdiction string
+
+const (
+	JurisdictionDefault Jurisdiction = "DEFAULT" // fallback when not specified
+	JurisdictionUS      Jurisdiction = "US"
+	JurisdictionEU      Jurisdiction = "EU"
+	JurisdictionAPAC    Jurisdiction = "APAC"
+)
+
 type NativeAccount struct {
 	AccountId           string
 	OwnerAddress        string
@@ -30,6 +51,8 @@ type NativeAccount struct {
 	AccountSequence     uint64
 	Status              AccountStatus
 	KYCStatus           KYCStatus
+	KYCTier             KYCTier
+	Jurisdiction        Jurisdiction
 }
 
 // NewNativeAccount creates an account with a deterministic ID derived from seed
@@ -45,6 +68,8 @@ func NewNativeAccount(ownerAddress, rootPublicKey, withdrawalPublicKey, seed str
 		AccountSequence:     0,
 		Status:              AccountStatusActive,
 		KYCStatus:           KYCStatusPending,
+		KYCTier:             KYCTierNone,
+		Jurisdiction:        JurisdictionDefault,
 	}
 }
 

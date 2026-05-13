@@ -157,7 +157,13 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 
 	case fairbatch.TxKYCApprove:
 		payload := tx.Payload.(fairbatch.KYCApprovePayload)
-		return p.AccountKeeper.UpdateKYCStatus(payload.AccountId, account.KYCStatus(payload.Status), blockHeight)
+		return p.AccountKeeper.UpdateKYCFull(
+			payload.AccountId,
+			account.KYCStatus(payload.Status),
+			account.KYCTier(payload.Tier),
+			account.Jurisdiction(payload.Jurisdiction),
+			blockHeight,
+		)
 
 	case fairbatch.TxBondValidator:
 		payload := tx.Payload.(fairbatch.BondValidatorPayload)

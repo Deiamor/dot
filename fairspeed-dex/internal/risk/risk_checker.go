@@ -5,6 +5,7 @@ import (
 
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
+	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 )
 
 // KYCStore allows the risk checker to read KYC status without importing AppState directly.
@@ -17,11 +18,19 @@ type SanctionsStore interface {
 	IsSanctioned(accountId string) bool
 }
 
+// AccountTierStore lets the risk checker read KYC tier and jurisdiction without
+// importing AppState directly.
+type AccountTierStore interface {
+	GetAccountTier(accountId string) (account.KYCTier, account.Jurisdiction)
+}
+
 type RiskChecker struct {
-	policy         RiskPolicy
-	tracker        *PositionTracker
-	kycStore       KYCStore       // nil when RequireKYC == false
-	sanctionsStore SanctionsStore // nil when no sanctions list is configured
+	policy           RiskPolicy
+	tracker          *PositionTracker
+	kycStore         KYCStore                // nil when RequireKYC == false
+	sanctionsStore   SanctionsStore          // nil when no sanctions list is configured
+	kycTierChecker   *compliance.KYCTierChecker // nil when tier limits are not configured
+	accountTierStore AccountTierStore        // nil when kycTierChecker is nil
 }
 
 func NewRiskChecker(policy RiskPolicy, tracker *PositionTracker) *RiskChecker {
@@ -37,6 +46,13 @@ func (r *RiskChecker) SetKYCStore(store KYCStore) {
 // sanctioned account is rejected regardless of other risk parameters.
 func (r *RiskChecker) SetSanctionsStore(store SanctionsStore) {
 	r.sanctionsStore = store
+}
+
+// SetKYCTierChecker wires the KYC tier limit checker. Requires accountTierStore
+// so the checker can look up the account's tier and jurisdiction.
+func (r *RiskChecker) SetKYCTierChecker(checker *compliance.KYCTierChecker, store AccountTierStore) {
+	r.kycTierChecker = checker
+	r.accountTierStore = store
 }
 
 // SetPolicy replaces the active risk policy. Called by governance on proposal execution.
@@ -69,10 +85,22 @@ func (r *RiskChecker) CheckOrder(o *clob.Order, sess *account.TradingSession, bl
 	if err := r.checkKYC(o.AccountId); err != nil {
 		return err
 	}
+	if err := r.checkKYCTierLimit(o.AccountId, o.Price*o.Quantity); err != nil {
+		return err
+	}
 	if err := r.checkPositionLimit(o); err != nil {
 		return err
 	}
 	return nil
+}
+
+// checkKYCTierLimit enforces per-tier notional limits (price × qty).
+func (r *RiskChecker) checkKYCTierLimit(accountId string, notional int64) error {
+	if r.kycTierChecker == nil || r.accountTierStore == nil {
+		return nil
+	}
+	tier, jurisdiction := r.accountTierStore.GetAccountTier(accountId)
+	return r.kycTierChecker.CheckOrder(tier, jurisdiction, notional)
 }
 
 // checkSanctions returns an error when the account is on the on-chain sanctions list.

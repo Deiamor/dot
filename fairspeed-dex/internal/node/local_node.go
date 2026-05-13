@@ -1,6 +1,8 @@
 package node
 
 import (
+	"fmt"
+
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
@@ -52,6 +54,7 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 	riskChecker := risk.NewRiskChecker(policy, positionTracker)
 	riskChecker.SetKYCStore(appState)        // AppState implements risk.KYCStore
 	riskChecker.SetSanctionsStore(appState)  // AppState implements risk.SanctionsStore
+	riskChecker.SetKYCTierChecker(compliance.DefaultKYCTierChecker(), appState)
 	settlementEngine.SetAMLLimit(policy.AMLSingleTradeLimitNotional)
 	matcher := clob.PricePriorityMatcher{}
 
@@ -198,6 +201,15 @@ func (n *LocalNode) GetAccountSequence(accountId string) uint64 {
 		return 0
 	}
 	return acc.AccountSequence
+}
+
+// GetAccount returns the full account record for accountId.
+func (n *LocalNode) GetAccount(accountId string) (*account.NativeAccount, error) {
+	acc, ok := n.AppState.GetAccount(accountId)
+	if !ok {
+		return nil, fmt.Errorf("account not found: %s", accountId)
+	}
+	return acc, nil
 }
 
 // GetKYCStatus returns the current KYC status for an account.

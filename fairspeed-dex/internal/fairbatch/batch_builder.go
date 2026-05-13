@@ -42,9 +42,12 @@ type WithdrawPayload struct {
 }
 
 // KYCApprovePayload is submitted by a privileged admin to approve or revoke an account's KYC.
+// Tier and Jurisdiction are optional — zero values leave existing values unchanged.
 type KYCApprovePayload struct {
-	AccountId string
-	Status    string // "APPROVED" | "REVOKED" | "EXEMPT"
+	AccountId    string
+	Status       string // "APPROVED" | "REVOKED" | "EXEMPT"
+	Tier         int    // 0 = unchanged, 1/2/3 = set tier
+	Jurisdiction string // "" = unchanged; "US"|"EU"|"APAC"|"DEFAULT"
 }
 
 // SubmitProposalPayload carries all parameters for a governance proposal.
@@ -166,11 +169,27 @@ func (b *BatchBuilder) AddWithdraw(accountId, assetId string, amount int64, seq 
 
 // AddKYCApprove adds an admin KYC status update transaction to the batch.
 // status must be one of: "APPROVED", "REVOKED", "EXEMPT".
+// tier 0 means unchanged; jurisdiction "" means unchanged.
 func (b *BatchBuilder) AddKYCApprove(accountId, status string) *BatchBuilder {
 	b.txs = append(b.txs, Transaction{
 		TxType:    TxKYCApprove,
 		AccountId: accountId,
 		Payload:   KYCApprovePayload{AccountId: accountId, Status: status},
+	})
+	return b
+}
+
+// AddKYCApproveWithTier is like AddKYCApprove but also sets KYC tier and jurisdiction.
+func (b *BatchBuilder) AddKYCApproveWithTier(accountId, status string, tier int, jurisdiction string) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:    TxKYCApprove,
+		AccountId: accountId,
+		Payload: KYCApprovePayload{
+			AccountId:    accountId,
+			Status:       status,
+			Tier:         tier,
+			Jurisdiction: jurisdiction,
+		},
 	})
 	return b
 }

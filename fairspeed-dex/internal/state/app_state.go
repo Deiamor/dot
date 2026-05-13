@@ -326,6 +326,18 @@ func (s *AppState) SetOrder(o *clob.Order) {
 	s.Orders[o.OrderId] = o
 }
 
+// GetAccountTier returns the KYC tier and jurisdiction for an account.
+// Returns (KYCTierNone, JurisdictionDefault) when account is not found.
+func (s *AppState) GetAccountTier(accountId string) (account.KYCTier, account.Jurisdiction) {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	acc, ok := s.Accounts[accountId]
+	if !ok {
+		return account.KYCTierNone, account.JurisdictionDefault
+	}
+	return acc.KYCTier, acc.Jurisdiction
+}
+
 // ---- SanctionsStore ---------------------------------------------------------
 
 func (s *AppState) IsSanctioned(accountId string) bool {
