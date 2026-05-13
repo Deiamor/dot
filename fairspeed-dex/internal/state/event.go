@@ -37,6 +37,7 @@ const (
 	EventMarkPriceUpdated       EventType = "MARK_PRICE_UPDATED"
 	EventWithdrawRequested      EventType = "WITHDRAW_REQUESTED"
 	EventWithdrawFinalized      EventType = "WITHDRAW_FINALIZED"
+	EventFeeDistributed         EventType = "FEE_DISTRIBUTED"
 
 	EventAll EventType = "*"
 )
@@ -242,5 +243,13 @@ type WithdrawFinalizedPayload struct {
 	AssetId      string
 	Amount       int64
 	BlockHeight  int64
+}
+
+// FeeDistributedPayload describes a single fee distribution to one validator.
+type FeeDistributedPayload struct {
+	ValidatorId string
+	AssetId     string
+	Amount      int64
+	BlockHeight int64
 }
 

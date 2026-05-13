@@ -88,6 +88,7 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 		SanctionsStore:     appState,
 		EventBus:           bus,
 		AppState:           appState,
+		DistributionAssets: []string{"USDC"},
 	}
 	n.processor = processor
 
@@ -325,6 +326,12 @@ func (n *LocalNode) GetOrderCount(accountId string) int64 {
 // GetPendingWithdrawals returns all pending timelocked withdrawals for an account.
 func (n *LocalNode) GetPendingWithdrawals(accountId string) []account.PendingWithdrawal {
 	return n.AppState.AllPendingWithdrawalsForAccount(accountId)
+}
+
+// GetValidatorReward returns the accumulated fee reward balance for a validator.
+func (n *LocalNode) GetValidatorReward(validatorId, assetId string) int64 {
+	rewardAccId := fee.ValidatorRewardAccountId(validatorId)
+	return n.AssetKeeper.GetBalance(rewardAccId, assetId).Available
 }
 
 // AllSanctions returns all current on-chain sanction entries.

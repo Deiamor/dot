@@ -10,6 +10,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
 	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
+	"github.com/byunghee1994/fairspeed-dex/internal/fee"
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
 	"github.com/byunghee1994/fairspeed-dex/internal/oracle"
 	"github.com/byunghee1994/fairspeed-dex/internal/risk"
@@ -32,6 +33,9 @@ type LocalBlockProcessor struct {
 	SanctionsStore     compliance.SanctionsStore
 	EventBus           *state.EventBus
 	AppState           *state.AppState
+	// DistributionAssets lists the asset IDs distributed from the treasury to validators.
+	// Defaults to ["USDC"] when empty.
+	DistributionAssets []string
 }
 
 func (p *LocalBlockProcessor) ProcessBlock(block LocalBlock) (BlockResult, error) {
@@ -76,6 +80,9 @@ func (p *LocalBlockProcessor) ProcessBlock(block LocalBlock) (BlockResult, error
 
 	// Auto-finalize timelocked withdrawals that are now ready.
 	p.processReadyWithdrawals(block.Height)
+
+	// Distribute accumulated treasury fees to bonded validators.
+	p.distributeFees(block.Height)
 
 	allTrades = p.SettlementKeeper.TradesForBlock(block.Height)
 	p.AppState.IncrementBlock()
@@ -524,4 +531,58 @@ func (p *LocalBlockProcessor) processWithdraw(payload fairbatch.WithdrawPayload,
 		},
 	})
 	return nil
+}
+
+// distributeFees transfers the treasury balance to bonded validators proportional
+// to their stake. Called once per block after all transactions are processed.
+func (p *LocalBlockProcessor) distributeFees(blockHeight int64) {
+	if p.ValidatorKeeper == nil {
+		return
+	}
+	validators := p.ValidatorKeeper.ActiveSet()
+	if len(validators) == 0 {
+		return
+	}
+	totalStake := p.ValidatorKeeper.TotalStake()
+	if totalStake == 0 {
+		return
+	}
+	assets := p.DistributionAssets
+	if len(assets) == 0 {
+		assets = []string{"USDC"}
+	}
+	for _, assetId := range assets {
+		treasury := p.AssetKeeper.GetBalance(fee.TreasuryAccountId, assetId)
+		total := treasury.Available
+		if total <= 0 {
+			continue
+		}
+		distributed := int64(0)
+		for i, v := range validators {
+			var share int64
+			if i == len(validators)-1 {
+				// Last validator gets the remainder to avoid rounding loss.
+				share = total - distributed
+			} else {
+				share = fee.DistributionShare(total, v.Stake, totalStake)
+			}
+			if share <= 0 {
+				continue
+			}
+			rewardAccId := fee.ValidatorRewardAccountId(v.ValidatorId)
+			_ = p.AssetKeeper.DeductAvailable(fee.TreasuryAccountId, assetId, share)
+			p.AssetKeeper.CreditAvailable(rewardAccId, assetId, share)
+			distributed += share
+			p.EventBus.Publish(state.Event{
+				Type:        state.EventFeeDistributed,
+				BlockHeight: blockHeight,
+				Payload: state.FeeDistributedPayload{
+					ValidatorId: v.ValidatorId,
+					AssetId:     assetId,
+					Amount:      share,
+					BlockHeight: blockHeight,
+				},
+			})
+		}
+	}
 }
