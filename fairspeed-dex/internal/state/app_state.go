@@ -333,6 +333,9 @@ type appStateSnapshot struct {
 	Assets      map[string]*asset.Asset                  `json:"assets"`
 	Orders      map[string]*clob.Order                   `json:"orders"`
 	OrderBooks  map[string]*clob.OrderBook               `json:"order_books"`
+	Validators  map[string]*validator.Validator           `json:"validators,omitempty"`
+	Proposals   map[string]*governance.Proposal           `json:"proposals,omitempty"`
+	Votes       map[string][]governance.VoteRecord        `json:"votes,omitempty"`
 }
 
 // SaveSnapshot serialises the current state to disk atomically (write-then-rename).
@@ -348,6 +351,9 @@ func (s *AppState) SaveSnapshot(path string) error {
 		Assets:      make(map[string]*asset.Asset, len(s.Assets)),
 		Orders:      make(map[string]*clob.Order, len(s.Orders)),
 		OrderBooks:  make(map[string]*clob.OrderBook, len(s.OrderBooks)),
+		Validators:  make(map[string]*validator.Validator, len(s.Validators)),
+		Proposals:   make(map[string]*governance.Proposal, len(s.Proposals)),
+		Votes:       make(map[string][]governance.VoteRecord, len(s.Votes)),
 	}
 	for k, v := range s.Accounts {
 		snap.Accounts[k] = v
@@ -372,6 +378,17 @@ func (s *AppState) SaveSnapshot(path string) error {
 	// blocked by the DEXApplication mutex during Commit.
 	for k, v := range s.OrderBooks {
 		snap.OrderBooks[k] = v
+	}
+	for k, v := range s.Validators {
+		snap.Validators[k] = v
+	}
+	for k, v := range s.Proposals {
+		snap.Proposals[k] = v
+	}
+	for k, vv := range s.Votes {
+		cp := make([]governance.VoteRecord, len(vv))
+		copy(cp, vv)
+		snap.Votes[k] = cp
 	}
 	s.globalMu.Unlock()
 
@@ -434,6 +451,15 @@ func (s *AppState) LoadSnapshot(path string) error {
 				s.Orders[id] = o
 			}
 		}
+	}
+	if snap.Validators != nil {
+		s.Validators = snap.Validators
+	}
+	if snap.Proposals != nil {
+		s.Proposals = snap.Proposals
+	}
+	if snap.Votes != nil {
+		s.Votes = snap.Votes
 	}
 	return nil
 }
