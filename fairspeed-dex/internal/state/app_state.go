@@ -535,6 +535,45 @@ func (s *AppState) AllPendingWithdrawalsForAccount(accountId string) []account.P
 	return result
 }
 
+// ---- perp market config ---------------------------------------------------
+
+// GetPerpConfig returns the PerpConfig for a PERP market (nil, false for SPOT or unknown).
+func (s *AppState) GetPerpConfig(marketId string) (*clob.PerpConfig, bool) {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	m, ok := s.Markets[marketId]
+	if !ok || m.Type != clob.MarketTypePerp || m.PerpConfig == nil {
+		return nil, false
+	}
+	cp := *m.PerpConfig
+	return &cp, true
+}
+
+// SetMarketAsPerp registers or updates a market as PERP type with the given config.
+func (s *AppState) SetMarketAsPerp(marketId string, cfg clob.PerpConfig) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	m, ok := s.Markets[marketId]
+	if !ok {
+		m = &clob.MarketInfo{
+			MarketId: marketId,
+			Status:   clob.MarketStatusActive,
+		}
+		s.Markets[marketId] = m
+	}
+	cp := cfg
+	m.Type = clob.MarketTypePerp
+	m.PerpConfig = &cp
+}
+
+// IsPerp returns true if the market is registered as a PERP market.
+func (s *AppState) IsPerp(marketId string) bool {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	m, ok := s.Markets[marketId]
+	return ok && m.Type == clob.MarketTypePerp
+}
+
 // ---- cross-chain bridge ---------------------------------------------------
 
 // GetBridgeDeposit returns the deposit record for depositId (nil,false if not found).

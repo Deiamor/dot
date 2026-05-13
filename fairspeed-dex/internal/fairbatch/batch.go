@@ -29,6 +29,7 @@ const (
 	TxSubmitPrice
 	TxWithdrawRequest
 	TxBridgeAttest
+	TxRegisterPerpMarket
 )
 
 type Transaction struct {
@@ -142,6 +143,13 @@ func computeTxHash(tx Transaction, blockHeight int64) string {
 		data += ":" + p.AccountId + ":" + p.AssetId
 		data += ":" + strconv.FormatInt(p.Amount, 10)
 		data += ":" + p.SourceChain
+	case RegisterPerpMarketPayload:
+		data += ":" + p.MarketId + ":" + p.BaseAsset + ":" + p.QuoteAsset
+		data += ":" + strconv.FormatInt(p.InitialMarginBps, 10)
+		data += ":" + strconv.FormatInt(p.MaintenanceMarginBps, 10)
+		data += ":" + strconv.FormatInt(p.MaxLeverage, 10)
+		data += ":" + strconv.FormatInt(p.FundingIntervalBlocks, 10)
+		data += ":" + strconv.FormatInt(p.MaxFundingRateBps, 10)
 	}
 
 	data += ":" + strconv.FormatInt(blockHeight, 10)

@@ -345,6 +345,27 @@ func (b *BatchBuilder) AddWithdrawRequest(accountId, assetId string, amount int6
 	return b
 }
 
+// RegisterPerpMarketPayload registers a new perpetual futures market with its config.
+type RegisterPerpMarketPayload struct {
+	MarketId              string
+	BaseAsset             string
+	QuoteAsset            string
+	InitialMarginBps      int64
+	MaintenanceMarginBps  int64
+	MaxLeverage           int64
+	FundingIntervalBlocks int64
+	MaxFundingRateBps     int64
+}
+
+// AddRegisterPerpMarket appends a perpetual market registration to the batch.
+func (b *BatchBuilder) AddRegisterPerpMarket(p RegisterPerpMarketPayload) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:  TxRegisterPerpMarket,
+		Payload: p,
+	})
+	return b
+}
+
 // BridgeAttestPayload carries a validator's attestation for a cross-chain deposit.
 type BridgeAttestPayload struct {
 	DepositId   string

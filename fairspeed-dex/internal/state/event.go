@@ -42,6 +42,8 @@ const (
 	EventBridgeAttested  EventType = "BRIDGE_ATTESTED"
 	EventBridgeCompleted EventType = "BRIDGE_COMPLETED"
 
+	EventPerpMarketRegistered EventType = "PERP_MARKET_REGISTERED"
+
 	EventAll EventType = "*"
 )
 
@@ -254,6 +256,18 @@ type FeeDistributedPayload struct {
 	AssetId     string
 	Amount      int64
 	BlockHeight int64
+}
+
+// PerpMarketRegisteredPayload is emitted when a perpetual market is registered.
+type PerpMarketRegisteredPayload struct {
+	MarketId              string
+	BaseAsset             string
+	QuoteAsset            string
+	InitialMarginBps      int64
+	MaintenanceMarginBps  int64
+	MaxLeverage           int64
+	FundingIntervalBlocks int64
+	MaxFundingRateBps     int64
 }
 
 // BridgeAttestedPayload is emitted when a validator attests a cross-chain deposit.

@@ -14,4 +14,6 @@ type MarketInfo struct {
 	Status         MarketStatus
 	HaltReason     string
 	HaltedAtHeight int64
+	Type           MarketType  // SPOT (default) | PERP
+	PerpConfig     *PerpConfig // non-nil only for PERP markets
 }

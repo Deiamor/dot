@@ -360,6 +360,16 @@ func (n *LocalNode) GetPosition(accountId, marketId string) risk.NetPosition {
 	return n.positionTracker.Get(accountId, marketId)
 }
 
+// GetPerpConfig returns the perpetual market config for marketId (nil, false if not a PERP market).
+func (n *LocalNode) GetPerpConfig(marketId string) (*clob.PerpConfig, bool) {
+	return n.AppState.GetPerpConfig(marketId)
+}
+
+// IsPerp returns true if marketId is registered as a PERP market.
+func (n *LocalNode) IsPerp(marketId string) bool {
+	return n.AppState.IsPerp(marketId)
+}
+
 // GetBridgeDeposit returns the bridge deposit record for depositId.
 func (n *LocalNode) GetBridgeDeposit(depositId string) (*bridge.BridgeDeposit, bool) {
 	return n.AppState.GetBridgeDeposit(depositId)

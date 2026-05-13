@@ -290,6 +290,10 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 		payload := tx.Payload.(fairbatch.BridgeAttestPayload)
 		return p.processBridgeAttest(payload, blockHeight)
 
+	case fairbatch.TxRegisterPerpMarket:
+		payload := tx.Payload.(fairbatch.RegisterPerpMarketPayload)
+		return p.processRegisterPerpMarket(payload, blockHeight)
+
 	default:
 		return fmt.Errorf("unknown transaction type: %d", tx.TxType)
 	}
@@ -533,6 +537,49 @@ func (p *LocalBlockProcessor) processWithdraw(payload fairbatch.WithdrawPayload,
 			AccountId: payload.AccountId,
 			AssetId:   payload.AssetId,
 			Amount:    payload.Amount,
+		},
+	})
+	return nil
+}
+
+// processRegisterPerpMarket registers a new perpetual futures market.
+func (p *LocalBlockProcessor) processRegisterPerpMarket(payload fairbatch.RegisterPerpMarketPayload, blockHeight int64) error {
+	if payload.InitialMarginBps <= 0 || payload.MaintenanceMarginBps <= 0 {
+		return fmt.Errorf("perp market %s: margin bps must be > 0", payload.MarketId)
+	}
+	if payload.MaintenanceMarginBps >= payload.InitialMarginBps {
+		return fmt.Errorf("perp market %s: maintenance margin must be < initial margin", payload.MarketId)
+	}
+	if payload.MaxLeverage <= 0 {
+		return fmt.Errorf("perp market %s: max leverage must be > 0", payload.MarketId)
+	}
+	cfg := clob.PerpConfig{
+		InitialMarginBps:      payload.InitialMarginBps,
+		MaintenanceMarginBps:  payload.MaintenanceMarginBps,
+		MaxLeverage:           payload.MaxLeverage,
+		FundingIntervalBlocks: payload.FundingIntervalBlocks,
+		MaxFundingRateBps:     payload.MaxFundingRateBps,
+	}
+	p.AppState.SetMarketAsPerp(payload.MarketId, cfg)
+	// Register assets for the market.
+	if payload.BaseAsset != "" {
+		p.AssetKeeper.RegisterAsset(asset.Asset{AssetId: payload.BaseAsset, Symbol: payload.BaseAsset, Decimals: 8})
+	}
+	if payload.QuoteAsset != "" {
+		p.AssetKeeper.RegisterAsset(asset.Asset{AssetId: payload.QuoteAsset, Symbol: payload.QuoteAsset, Decimals: 6})
+	}
+	p.EventBus.Publish(state.Event{
+		Type:        state.EventPerpMarketRegistered,
+		BlockHeight: blockHeight,
+		Payload: state.PerpMarketRegisteredPayload{
+			MarketId:              payload.MarketId,
+			BaseAsset:             payload.BaseAsset,
+			QuoteAsset:            payload.QuoteAsset,
+			InitialMarginBps:      payload.InitialMarginBps,
+			MaintenanceMarginBps:  payload.MaintenanceMarginBps,
+			MaxLeverage:           payload.MaxLeverage,
+			FundingIntervalBlocks: payload.FundingIntervalBlocks,
+			MaxFundingRateBps:     payload.MaxFundingRateBps,
 		},
 	})
 	return nil
