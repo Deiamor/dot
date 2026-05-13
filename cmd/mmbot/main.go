@@ -1,13 +1,14 @@
-// Command mmbot runs the funding-aware market making strategy against HyperLiquid.
+// Command mmbot runs the funding-aware market making strategy against Binance
+// USDT-M Perpetual Futures.
 //
 // Usage:
 //
 //	mmbot [flags]
 //
-// Required environment variables when running live:
+// Required environment variables for live trading:
 //
-//	HYPERLIQUID_KEY     hex-encoded secp256k1 private key (64 chars)
-//	HYPERLIQUID_ADDRESS 0x wallet address
+//	BINANCE_API_KEY    Binance API key
+//	BINANCE_SECRET_KEY Binance secret key
 package main
 
 import (
@@ -20,46 +21,48 @@ import (
 	"time"
 
 	"github.com/deiamor/perp-strategy-engine/fsm/core"
-	"github.com/deiamor/perp-strategy-engine/fsm/exchange/hyperliquid"
+	"github.com/deiamor/perp-strategy-engine/fsm/exchange/binance"
 	engine "github.com/deiamor/perp-strategy-engine/mm/engine"
 	"github.com/deiamor/perp-strategy-engine/mm/model"
 )
 
 func main() {
-	symbol      := flag.String("symbol", "BTC", "trading pair symbol")
+	symbol      := flag.String("symbol", "BTCUSDT", "Binance futures symbol (e.g. BTCUSDT, ETHUSDT)")
 	gamma        := flag.Float64("gamma", 0.1, "risk aversion coefficient")
 	kappa        := flag.Float64("kappa", 1.5, "order arrival intensity (fills/sec)")
 	sigma        := flag.Float64("sigma", 0.80, "initial realised volatility (annualised)")
 	horizon      := flag.Float64("horizon", 1.0/365, "strategy horizon in years")
 	alpha        := flag.Float64("alpha", 1.0, "funding sensitivity [0,1]")
-	fundingEpoch := flag.Float64("funding-epoch", 1.0/365/3, "funding epoch duration in years")
-	maxInv       := flag.Float64("max-inventory", 5.0, "max inventory in base units")
+	fundingEpoch := flag.Float64("funding-epoch", 1.0/365/3, "funding epoch in years (8h = 1/365/3)")
+	maxInv       := flag.Float64("max-inventory", 0.1, "max inventory in base units")
 	minSpread    := flag.Float64("min-spread", 0.0001, "min half-spread as fraction of mid")
-	orderSize    := flag.Float64("order-size", 0.01, "base order size in base units")
-	invThresh    := flag.Float64("inventory-threshold", 0.5, "inventory skewing threshold (fraction of max)")
+	orderSize    := flag.Float64("order-size", 0.001, "base order size in base units")
+	invThresh    := flag.Float64("inventory-threshold", 0.5, "skewing threshold (fraction of max-inventory)")
 	pauseFunding := flag.Float64("pause-funding", 2.0, "pause when funding cost / spread revenue > this")
-	pauseVol     := flag.Float64("pause-vol", 2.0, "pause when realised vol / model vol > this multiple")
+	pauseVol     := flag.Float64("pause-vol", 2.0, "pause when realised vol / model vol > this")
 	volWindow    := flag.Int("vol-window", 100, "rolling window size for vol estimator (ticks)")
 	interval     := flag.Duration("interval", 5*time.Second, "tick interval")
-	testnet      := flag.Bool("testnet", false, "use HyperLiquid testnet")
+	testnet      := flag.Bool("testnet", false, "use Binance Futures testnet")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	opts := []hyperliquid.Option{}
+	opts := []binance.Option{}
 	if *testnet {
-		opts = append(opts, hyperliquid.WithTestnet())
-		log.Info("using HyperLiquid testnet")
-	}
-	if key := os.Getenv("HYPERLIQUID_KEY"); key != "" {
-		addr := os.Getenv("HYPERLIQUID_ADDRESS")
-		opts = append(opts, hyperliquid.WithKey(key, addr))
-		log.Info("order signing enabled", "address", addr)
-	} else {
-		log.Warn("HYPERLIQUID_KEY not set — read-only mode (orders will fail)")
+		opts = append(opts, binance.WithTestnet())
+		log.Info("using Binance Futures testnet")
 	}
 
-	ex := hyperliquid.New(opts...)
+	apiKey := os.Getenv("BINANCE_API_KEY")
+	secretKey := os.Getenv("BINANCE_SECRET_KEY")
+	if apiKey != "" && secretKey != "" {
+		opts = append(opts, binance.WithKey(apiKey, secretKey))
+		log.Info("order signing enabled")
+	} else {
+		log.Warn("BINANCE_API_KEY / BINANCE_SECRET_KEY not set — read-only mode (orders will fail)")
+	}
+
+	ex := binance.New(opts...)
 
 	kill := make(chan struct{})
 
@@ -97,14 +100,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Graceful shutdown on SIGINT/SIGTERM.
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigs
 		log.Warn("signal received, activating kill switch", "signal", sig)
 		close(kill)
-		// Give the engine one more tick to flatten, then cancel context.
 		time.Sleep(*interval + time.Second)
 		cancel()
 	}()

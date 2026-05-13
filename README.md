@@ -9,6 +9,8 @@ Two independent libraries in one monorepo:
 | `fsm/` | Declarative state-machine execution layer for trading strategies |
 | `mm/` | Production implementation of the funding-aware Avellaneda-Stoikov model ([arXiv:2605.06405](https://arxiv.org/abs/2605.06405)) |
 
+**Supported venues**: Binance USDT-M Perpetual Futures (full — market data + signed execution), HyperLiquid (market data only)
+
 ---
 
 ## Why this exists
@@ -221,19 +223,22 @@ m.UpdateSigma(sigma)
 ## Running the MM bot
 
 ```bash
+export BINANCE_API_KEY=your_api_key
+export BINANCE_SECRET_KEY=your_secret_key
+
 go run ./cmd/mmbot \
-  --symbol BTC \
+  --symbol BTCUSDT \
   --gamma 0.1 \
   --kappa 1.5 \
   --sigma 0.80 \
   --horizon 0.00274 \
   --alpha 1.0 \
-  --order-size 0.01 \
+  --order-size 0.001 \
   --interval 5s \
   --testnet
 ```
 
-Set `HYPERLIQUID_KEY` and `HYPERLIQUID_ADDRESS` environment variables for order signing (currently requires EIP-712 implementation — see `fsm/exchange/hyperliquid/client.go`).
+Omit `BINANCE_API_KEY` / `BINANCE_SECRET_KEY` for read-only mode (market data only, orders will error).
 
 ---
 
@@ -243,13 +248,14 @@ Set `HYPERLIQUID_KEY` and `HYPERLIQUID_ADDRESS` environment variables for order 
 fsm/
   core/           Engine, Strategy, State, Transition, Context
   exchange/       Exchange interface + types (Order, Position, MarketSnapshot …)
-    hyperliquid/  HyperLiquid connector (read-only live; signing TODO)
+    binance/      Binance USDT-M Futures connector (full: market data + signed execution)
+    hyperliquid/  HyperLiquid connector (market data only; signing TODO)
   primitives/     Ready-to-use strategies (TWAP)
 mm/
   model/          Avellaneda-Stoikov + funding rate math, VolatilityEstimator
   engine/         MakerStrategy FSM
 cmd/
-  mmbot/          Runnable market making bot
+  mmbot/          Runnable market making bot (targets Binance)
 ```
 
 ---
