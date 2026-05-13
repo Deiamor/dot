@@ -6,6 +6,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
+	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
 	"github.com/byunghee1994/fairspeed-dex/internal/risk"
@@ -25,6 +26,7 @@ type LocalBlockProcessor struct {
 	ValidatorKeeper    *validator.ValidatorKeeper
 	GovernanceKeeper   *governance.GovernanceKeeper
 	GovernanceExecutor governance.ParameterExecutor
+	SanctionsStore     compliance.SanctionsStore
 	EventBus           *state.EventBus
 	AppState           *state.AppState
 }
@@ -191,6 +193,27 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 		}
 		return p.GovernanceKeeper.CastVote(
 			payload.ProposalId, payload.ValidatorId, payload.Choice, payload.Stake, blockHeight)
+
+	case fairbatch.TxSanctionAccount:
+		payload := tx.Payload.(fairbatch.SanctionAccountPayload)
+		if p.SanctionsStore == nil {
+			return fmt.Errorf("sanctions store not configured")
+		}
+		p.SanctionsStore.AddSanction(compliance.SanctionEntry{
+			AccountId:   payload.AccountId,
+			Reason:      payload.Reason,
+			ListName:    payload.ListName,
+			AddedHeight: blockHeight,
+		})
+		return nil
+
+	case fairbatch.TxUnsanctionAccount:
+		payload := tx.Payload.(fairbatch.UnsanctionAccountPayload)
+		if p.SanctionsStore == nil {
+			return fmt.Errorf("sanctions store not configured")
+		}
+		p.SanctionsStore.RemoveSanction(payload.AccountId)
+		return nil
 
 	default:
 		return fmt.Errorf("unknown transaction type: %d", tx.TxType)

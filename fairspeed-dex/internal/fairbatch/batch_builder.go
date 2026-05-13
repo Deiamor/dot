@@ -221,6 +221,40 @@ func (b *BatchBuilder) AddUnbondValidator(validatorId string) *BatchBuilder {
 	return b
 }
 
+// SanctionAccountPayload adds an account to the on-chain sanctions list.
+type SanctionAccountPayload struct {
+	AccountId string
+	Reason    string // free-text reason (e.g. "OFAC SDN list")
+	ListName  string // canonical list name (e.g. "OFAC", "UN")
+}
+
+// UnsanctionAccountPayload removes an account from the on-chain sanctions list.
+type UnsanctionAccountPayload struct {
+	AccountId string
+}
+
+// AddSanctionAccount adds an account to the on-chain sanctions list.
+func (b *BatchBuilder) AddSanctionAccount(accountId, reason, listName string) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType: TxSanctionAccount,
+		Payload: SanctionAccountPayload{
+			AccountId: accountId,
+			Reason:    reason,
+			ListName:  listName,
+		},
+	})
+	return b
+}
+
+// AddUnsanctionAccount removes an account from the on-chain sanctions list.
+func (b *BatchBuilder) AddUnsanctionAccount(accountId string) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:  TxUnsanctionAccount,
+		Payload: UnsanctionAccountPayload{AccountId: accountId},
+	})
+	return b
+}
+
 func (b *BatchBuilder) Build() FairBatch {
 	sorted, batchHash := SortAndHash(b.txs, b.blockHeight)
 	return FairBatch{

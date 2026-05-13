@@ -22,6 +22,8 @@ const (
 	TxUnbondValidator
 	TxSubmitProposal
 	TxVote
+	TxSanctionAccount
+	TxUnsanctionAccount
 )
 
 type Transaction struct {
@@ -115,6 +117,10 @@ func computeTxHash(tx Transaction, blockHeight int64) string {
 	case VotePayload:
 		data += ":" + p.ProposalId + ":" + p.ValidatorId + ":" + p.Choice
 		data += ":" + strconv.FormatInt(p.Stake, 10)
+	case SanctionAccountPayload:
+		data += ":" + p.AccountId + ":" + p.Reason + ":" + p.ListName
+	case UnsanctionAccountPayload:
+		data += ":" + p.AccountId
 	}
 
 	data += ":" + strconv.FormatInt(blockHeight, 10)

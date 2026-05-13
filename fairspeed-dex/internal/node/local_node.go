@@ -4,6 +4,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
+	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
 	"github.com/byunghee1994/fairspeed-dex/internal/fee"
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
@@ -49,7 +50,8 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 	settlementKeeper := settlement.NewSettlementKeeper()
 
 	riskChecker := risk.NewRiskChecker(policy, positionTracker)
-	riskChecker.SetKYCStore(appState) // AppState implements risk.KYCStore
+	riskChecker.SetKYCStore(appState)        // AppState implements risk.KYCStore
+	riskChecker.SetSanctionsStore(appState)  // AppState implements risk.SanctionsStore
 	settlementEngine.SetAMLLimit(policy.AMLSingleTradeLimitNotional)
 	matcher := clob.PricePriorityMatcher{}
 
@@ -79,6 +81,7 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 		ValidatorKeeper:    validatorKeeper,
 		GovernanceKeeper:   governanceKeeper,
 		GovernanceExecutor: n,
+		SanctionsStore:     appState,
 		EventBus:           bus,
 		AppState:           appState,
 	}
@@ -280,6 +283,16 @@ func (n *LocalNode) ListMarket(params governance.ListMarketParams) error {
 		n.AssetKeeper.RegisterAsset(asset.Asset{AssetId: params.QuoteAsset, Symbol: params.QuoteAsset, Decimals: 6})
 	}
 	return nil
+}
+
+// IsSanctioned returns true if the account is on the on-chain sanctions list.
+func (n *LocalNode) IsSanctioned(accountId string) bool {
+	return n.AppState.IsSanctioned(accountId)
+}
+
+// AllSanctions returns all current on-chain sanction entries.
+func (n *LocalNode) AllSanctions() []compliance.SanctionEntry {
+	return n.AppState.AllSanctions()
 }
 
 // AllProposals returns all governance proposals.

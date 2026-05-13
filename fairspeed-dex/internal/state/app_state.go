@@ -10,6 +10,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
+	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
 	"github.com/byunghee1994/fairspeed-dex/internal/validator"
 )
@@ -39,6 +40,7 @@ type AppState struct {
 	Validators  map[string]*validator.Validator
 	Proposals   map[string]*governance.Proposal
 	Votes       map[string][]governance.VoteRecord // keyed by proposalId
+	Sanctions   map[string]*compliance.SanctionEntry
 	BlockHeight int64
 }
 
@@ -53,6 +55,7 @@ func NewAppState() *AppState {
 		Validators: make(map[string]*validator.Validator),
 		Proposals:  make(map[string]*governance.Proposal),
 		Votes:      make(map[string][]governance.VoteRecord),
+		Sanctions:  make(map[string]*compliance.SanctionEntry),
 	}
 }
 
@@ -323,6 +326,37 @@ func (s *AppState) SetOrder(o *clob.Order) {
 	s.Orders[o.OrderId] = o
 }
 
+// ---- SanctionsStore ---------------------------------------------------------
+
+func (s *AppState) IsSanctioned(accountId string) bool {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	_, ok := s.Sanctions[accountId]
+	return ok
+}
+
+func (s *AppState) AddSanction(entry compliance.SanctionEntry) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	s.Sanctions[entry.AccountId] = &entry
+}
+
+func (s *AppState) RemoveSanction(accountId string) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	delete(s.Sanctions, accountId)
+}
+
+func (s *AppState) AllSanctions() []compliance.SanctionEntry {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	result := make([]compliance.SanctionEntry, 0, len(s.Sanctions))
+	for _, e := range s.Sanctions {
+		result = append(result, *e)
+	}
+	return result
+}
+
 // ---- snapshot persistence ---------------------------------------------------
 
 type appStateSnapshot struct {
@@ -333,9 +367,10 @@ type appStateSnapshot struct {
 	Assets      map[string]*asset.Asset                  `json:"assets"`
 	Orders      map[string]*clob.Order                   `json:"orders"`
 	OrderBooks  map[string]*clob.OrderBook               `json:"order_books"`
-	Validators  map[string]*validator.Validator           `json:"validators,omitempty"`
-	Proposals   map[string]*governance.Proposal           `json:"proposals,omitempty"`
-	Votes       map[string][]governance.VoteRecord        `json:"votes,omitempty"`
+	Validators  map[string]*validator.Validator            `json:"validators,omitempty"`
+	Proposals   map[string]*governance.Proposal            `json:"proposals,omitempty"`
+	Votes       map[string][]governance.VoteRecord         `json:"votes,omitempty"`
+	Sanctions   map[string]*compliance.SanctionEntry       `json:"sanctions,omitempty"`
 }
 
 // SaveSnapshot serialises the current state to disk atomically (write-then-rename).
@@ -354,6 +389,7 @@ func (s *AppState) SaveSnapshot(path string) error {
 		Validators:  make(map[string]*validator.Validator, len(s.Validators)),
 		Proposals:   make(map[string]*governance.Proposal, len(s.Proposals)),
 		Votes:       make(map[string][]governance.VoteRecord, len(s.Votes)),
+		Sanctions:   make(map[string]*compliance.SanctionEntry, len(s.Sanctions)),
 	}
 	for k, v := range s.Accounts {
 		snap.Accounts[k] = v
@@ -389,6 +425,9 @@ func (s *AppState) SaveSnapshot(path string) error {
 		cp := make([]governance.VoteRecord, len(vv))
 		copy(cp, vv)
 		snap.Votes[k] = cp
+	}
+	for k, v := range s.Sanctions {
+		snap.Sanctions[k] = v
 	}
 	s.globalMu.Unlock()
 
@@ -460,6 +499,9 @@ func (s *AppState) LoadSnapshot(path string) error {
 	}
 	if snap.Votes != nil {
 		s.Votes = snap.Votes
+	}
+	if snap.Sanctions != nil {
+		s.Sanctions = snap.Sanctions
 	}
 	return nil
 }

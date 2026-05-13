@@ -12,10 +12,16 @@ type KYCStore interface {
 	GetKYCStatus(accountId string) account.KYCStatus
 }
 
+// SanctionsStore allows the risk checker to check sanctions without importing AppState.
+type SanctionsStore interface {
+	IsSanctioned(accountId string) bool
+}
+
 type RiskChecker struct {
-	policy   RiskPolicy
-	tracker  *PositionTracker
-	kycStore KYCStore // nil when RequireKYC == false
+	policy         RiskPolicy
+	tracker        *PositionTracker
+	kycStore       KYCStore       // nil when RequireKYC == false
+	sanctionsStore SanctionsStore // nil when no sanctions list is configured
 }
 
 func NewRiskChecker(policy RiskPolicy, tracker *PositionTracker) *RiskChecker {
@@ -25,6 +31,12 @@ func NewRiskChecker(policy RiskPolicy, tracker *PositionTracker) *RiskChecker {
 // SetKYCStore wires the KYC store used when RequireKYC == true.
 func (r *RiskChecker) SetKYCStore(store KYCStore) {
 	r.kycStore = store
+}
+
+// SetSanctionsStore wires the sanctions store. When set, every order from a
+// sanctioned account is rejected regardless of other risk parameters.
+func (r *RiskChecker) SetSanctionsStore(store SanctionsStore) {
+	r.sanctionsStore = store
 }
 
 // SetPolicy replaces the active risk policy. Called by governance on proposal execution.
@@ -51,11 +63,26 @@ func (r *RiskChecker) CheckOrder(o *clob.Order, sess *account.TradingSession, bl
 	if !sess.CanTradeMarket(o.MarketId) {
 		return fmt.Errorf("session %s not allowed for market %s", sess.SessionId, o.MarketId)
 	}
+	if err := r.checkSanctions(o.AccountId); err != nil {
+		return err
+	}
 	if err := r.checkKYC(o.AccountId); err != nil {
 		return err
 	}
 	if err := r.checkPositionLimit(o); err != nil {
 		return err
+	}
+	return nil
+}
+
+// checkSanctions returns an error when the account is on the on-chain sanctions list.
+// Sanctions are always enforced regardless of RiskPolicy settings.
+func (r *RiskChecker) checkSanctions(accountId string) error {
+	if r.sanctionsStore == nil {
+		return nil
+	}
+	if r.sanctionsStore.IsSanctioned(accountId) {
+		return fmt.Errorf("account %s is sanctioned and cannot trade", accountId)
 	}
 	return nil
 }
