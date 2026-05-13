@@ -54,6 +54,7 @@ type UpdateRiskPolicyParams struct {
 	MaxPositionSize             int64
 	RequireKYC                  bool
 	AMLSingleTradeLimitNotional int64
+	MaxOrdersPerBlock           int64 // 0 = unlimited
 }
 
 // ListMarketParams are the execution parameters for a ListMarket proposal.

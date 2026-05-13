@@ -14,6 +14,9 @@ type RiskPolicy struct {
 	// AMLSingleTradeLimitNotional fires an AML alert when a single trade's notional
 	// (price × quantity) exceeds this value. 0 means disabled.
 	AMLSingleTradeLimitNotional int64
+	// MaxOrdersPerBlock is the maximum number of orders a single account may submit
+	// in one block. 0 means unlimited.
+	MaxOrdersPerBlock int64
 }
 
 var DefaultRiskPolicy = RiskPolicy{
@@ -23,4 +26,5 @@ var DefaultRiskPolicy = RiskPolicy{
 	MaxPositionSize:             0,    // unlimited
 	RequireKYC:                  false, // disabled in test/bootstrap
 	AMLSingleTradeLimitNotional: 0,    // disabled
+	MaxOrdersPerBlock:           0,    // unlimited by default
 }

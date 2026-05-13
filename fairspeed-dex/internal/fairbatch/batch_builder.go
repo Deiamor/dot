@@ -319,6 +319,7 @@ func (b *BatchBuilder) AddSubmitPrice(marketId, validatorId string, price int64)
 	return b
 }
 
+
 func (b *BatchBuilder) Build() FairBatch {
 	sorted, batchHash := SortAndHash(b.txs, b.blockHeight)
 	return FairBatch{

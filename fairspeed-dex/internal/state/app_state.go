@@ -42,9 +42,10 @@ type AppState struct {
 	Proposals   map[string]*governance.Proposal
 	Votes       map[string][]governance.VoteRecord // keyed by proposalId
 	Sanctions   map[string]*compliance.SanctionEntry
-	Markets      map[string]*clob.MarketInfo // per-market status (halt/resume)
-	OraclePrices map[string]map[string]*oracle.PriceSubmission // marketId → validatorId → submission
-	BlockHeight  int64
+	Markets          map[string]*clob.MarketInfo                       // per-market status (halt/resume)
+	OraclePrices     map[string]map[string]*oracle.PriceSubmission     // marketId → validatorId → submission
+	OrdersThisBlock  map[string]int64                                  // accountId → orders submitted this block
+	BlockHeight      int64
 }
 
 func NewAppState() *AppState {
@@ -58,9 +59,10 @@ func NewAppState() *AppState {
 		Validators: make(map[string]*validator.Validator),
 		Proposals:  make(map[string]*governance.Proposal),
 		Votes:      make(map[string][]governance.VoteRecord),
-		Sanctions:    make(map[string]*compliance.SanctionEntry),
-		Markets:      make(map[string]*clob.MarketInfo),
-		OraclePrices: make(map[string]map[string]*oracle.PriceSubmission),
+		Sanctions:       make(map[string]*compliance.SanctionEntry),
+		Markets:         make(map[string]*clob.MarketInfo),
+		OraclePrices:    make(map[string]map[string]*oracle.PriceSubmission),
+		OrdersThisBlock: make(map[string]int64),
 	}
 }
 
@@ -74,6 +76,23 @@ func (s *AppState) IncrementBlock() {
 	s.globalMu.Lock()
 	defer s.globalMu.Unlock()
 	s.BlockHeight++
+	s.OrdersThisBlock = make(map[string]int64) // reset per-block order counts
+}
+
+// IncrementOrderCount increments the order count for accountId in the current block
+// and returns the new total.
+func (s *AppState) IncrementOrderCount(accountId string) int64 {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	s.OrdersThisBlock[accountId]++
+	return s.OrdersThisBlock[accountId]
+}
+
+// GetOrderCount returns the number of orders submitted by accountId in the current block.
+func (s *AppState) GetOrderCount(accountId string) int64 {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	return s.OrdersThisBlock[accountId]
 }
 
 func (s *AppState) CurrentHeight() int64 {

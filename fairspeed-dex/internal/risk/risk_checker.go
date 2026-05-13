@@ -24,13 +24,20 @@ type AccountTierStore interface {
 	GetAccountTier(accountId string) (account.KYCTier, account.Jurisdiction)
 }
 
+// RateLimitStore lets the risk checker enforce per-block order counts without
+// importing AppState directly.
+type RateLimitStore interface {
+	IncrementOrderCount(accountId string) int64
+}
+
 type RiskChecker struct {
 	policy           RiskPolicy
 	tracker          *PositionTracker
-	kycStore         KYCStore                // nil when RequireKYC == false
-	sanctionsStore   SanctionsStore          // nil when no sanctions list is configured
+	kycStore         KYCStore                   // nil when RequireKYC == false
+	sanctionsStore   SanctionsStore             // nil when no sanctions list is configured
 	kycTierChecker   *compliance.KYCTierChecker // nil when tier limits are not configured
-	accountTierStore AccountTierStore        // nil when kycTierChecker is nil
+	accountTierStore AccountTierStore           // nil when kycTierChecker is nil
+	rateLimitStore   RateLimitStore             // nil when MaxOrdersPerBlock == 0
 }
 
 func NewRiskChecker(policy RiskPolicy, tracker *PositionTracker) *RiskChecker {
@@ -53,6 +60,11 @@ func (r *RiskChecker) SetSanctionsStore(store SanctionsStore) {
 func (r *RiskChecker) SetKYCTierChecker(checker *compliance.KYCTierChecker, store AccountTierStore) {
 	r.kycTierChecker = checker
 	r.accountTierStore = store
+}
+
+// SetRateLimitStore wires the per-block order counter store.
+func (r *RiskChecker) SetRateLimitStore(store RateLimitStore) {
+	r.rateLimitStore = store
 }
 
 // SetPolicy replaces the active risk policy. Called by governance on proposal execution.
@@ -88,8 +100,25 @@ func (r *RiskChecker) CheckOrder(o *clob.Order, sess *account.TradingSession, bl
 	if err := r.checkKYCTierLimit(o.AccountId, o.Price*o.Quantity); err != nil {
 		return err
 	}
+	if err := r.checkRateLimit(o.AccountId); err != nil {
+		return err
+	}
 	if err := r.checkPositionLimit(o); err != nil {
 		return err
+	}
+	return nil
+}
+
+// checkRateLimit enforces MaxOrdersPerBlock per account. The order count is
+// incremented atomically so each rejected order still counts toward the limit.
+func (r *RiskChecker) checkRateLimit(accountId string) error {
+	if r.policy.MaxOrdersPerBlock == 0 || r.rateLimitStore == nil {
+		return nil
+	}
+	count := r.rateLimitStore.IncrementOrderCount(accountId)
+	if count > r.policy.MaxOrdersPerBlock {
+		return fmt.Errorf("rate limit exceeded: account=%s orders_this_block=%d limit=%d",
+			accountId, count, r.policy.MaxOrdersPerBlock)
 	}
 	return nil
 }

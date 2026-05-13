@@ -225,3 +225,4 @@ type MarkPriceUpdatedPayload struct {
 	MarkPrice   int64
 	BlockHeight int64
 }
+

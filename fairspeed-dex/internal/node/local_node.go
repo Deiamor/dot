@@ -55,6 +55,7 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 	riskChecker.SetKYCStore(appState)        // AppState implements risk.KYCStore
 	riskChecker.SetSanctionsStore(appState)  // AppState implements risk.SanctionsStore
 	riskChecker.SetKYCTierChecker(compliance.DefaultKYCTierChecker(), appState)
+	riskChecker.SetRateLimitStore(appState)  // AppState implements risk.RateLimitStore
 	settlementEngine.SetAMLLimit(policy.AMLSingleTradeLimitNotional)
 	matcher := clob.PricePriorityMatcher{}
 
@@ -282,6 +283,7 @@ func (n *LocalNode) UpdateRiskPolicy(params governance.UpdateRiskPolicyParams) e
 		MaxPositionSize:             params.MaxPositionSize,
 		RequireKYC:                  params.RequireKYC,
 		AMLSingleTradeLimitNotional: params.AMLSingleTradeLimitNotional,
+		MaxOrdersPerBlock:           params.MaxOrdersPerBlock,
 	})
 	return nil
 }
@@ -311,6 +313,11 @@ func (n *LocalNode) GetMarketStatus(marketId string) clob.MarketStatus {
 // Returns 0 when no prices have been submitted.
 func (n *LocalNode) GetMarkPrice(marketId string) int64 {
 	return n.AppState.GetMarkPrice(marketId)
+}
+
+// GetOrderCount returns how many orders accountId has submitted in the current block.
+func (n *LocalNode) GetOrderCount(accountId string) int64 {
+	return n.AppState.GetOrderCount(accountId)
 }
 
 // AllSanctions returns all current on-chain sanction entries.
