@@ -307,6 +307,12 @@ func (n *LocalNode) GetMarketStatus(marketId string) clob.MarketStatus {
 	return n.AppState.GetMarketStatus(marketId)
 }
 
+// GetMarkPrice returns the current median oracle mark price for a market.
+// Returns 0 when no prices have been submitted.
+func (n *LocalNode) GetMarkPrice(marketId string) int64 {
+	return n.AppState.GetMarkPrice(marketId)
+}
+
 // AllSanctions returns all current on-chain sanction entries.
 func (n *LocalNode) AllSanctions() []compliance.SanctionEntry {
 	return n.AppState.AllSanctions()

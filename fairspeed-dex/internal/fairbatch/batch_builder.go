@@ -303,6 +303,22 @@ func (b *BatchBuilder) AddResumeMarket(marketId string) *BatchBuilder {
 	return b
 }
 
+// SubmitPricePayload carries a validator's mark price submission for a market.
+type SubmitPricePayload struct {
+	MarketId    string
+	ValidatorId string
+	Price       int64
+}
+
+// AddSubmitPrice appends a validator price oracle submission to the batch.
+func (b *BatchBuilder) AddSubmitPrice(marketId, validatorId string, price int64) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:  TxSubmitPrice,
+		Payload: SubmitPricePayload{MarketId: marketId, ValidatorId: validatorId, Price: price},
+	})
+	return b
+}
+
 func (b *BatchBuilder) Build() FairBatch {
 	sorted, batchHash := SortAndHash(b.txs, b.blockHeight)
 	return FairBatch{

@@ -12,6 +12,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
 	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
+	"github.com/byunghee1994/fairspeed-dex/internal/oracle"
 	"github.com/byunghee1994/fairspeed-dex/internal/validator"
 )
 
@@ -41,8 +42,9 @@ type AppState struct {
 	Proposals   map[string]*governance.Proposal
 	Votes       map[string][]governance.VoteRecord // keyed by proposalId
 	Sanctions   map[string]*compliance.SanctionEntry
-	Markets     map[string]*clob.MarketInfo // per-market status (halt/resume)
-	BlockHeight int64
+	Markets      map[string]*clob.MarketInfo // per-market status (halt/resume)
+	OraclePrices map[string]map[string]*oracle.PriceSubmission // marketId → validatorId → submission
+	BlockHeight  int64
 }
 
 func NewAppState() *AppState {
@@ -56,8 +58,9 @@ func NewAppState() *AppState {
 		Validators: make(map[string]*validator.Validator),
 		Proposals:  make(map[string]*governance.Proposal),
 		Votes:      make(map[string][]governance.VoteRecord),
-		Sanctions:  make(map[string]*compliance.SanctionEntry),
-		Markets:    make(map[string]*clob.MarketInfo),
+		Sanctions:    make(map[string]*compliance.SanctionEntry),
+		Markets:      make(map[string]*clob.MarketInfo),
+		OraclePrices: make(map[string]map[string]*oracle.PriceSubmission),
 	}
 }
 
@@ -414,6 +417,47 @@ func (s *AppState) ResumeMarket(marketId string) {
 	}
 }
 
+// ---- oracle / mark price ----------------------------------------------------
+
+// SetOraclePrice stores a validator's price submission for a market.
+func (s *AppState) SetOraclePrice(sub oracle.PriceSubmission) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	if s.OraclePrices[sub.MarketId] == nil {
+		s.OraclePrices[sub.MarketId] = make(map[string]*oracle.PriceSubmission)
+	}
+	cp := sub
+	s.OraclePrices[sub.MarketId][sub.ValidatorId] = &cp
+}
+
+// GetMarkPrice returns the median of all validator price submissions for marketId.
+// Returns 0 when no prices have been submitted.
+func (s *AppState) GetMarkPrice(marketId string) int64 {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	subs, ok := s.OraclePrices[marketId]
+	if !ok || len(subs) == 0 {
+		return 0
+	}
+	prices := make([]int64, 0, len(subs))
+	for _, sub := range subs {
+		prices = append(prices, sub.Price)
+	}
+	return oracle.MedianPrice(prices)
+}
+
+// AllOraclePrices returns all price submissions for a market (latest per validator).
+func (s *AppState) AllOraclePrices(marketId string) []oracle.PriceSubmission {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	subs := s.OraclePrices[marketId]
+	result := make([]oracle.PriceSubmission, 0, len(subs))
+	for _, sub := range subs {
+		result = append(result, *sub)
+	}
+	return result
+}
+
 // ---- snapshot persistence ---------------------------------------------------
 
 type appStateSnapshot struct {
@@ -427,8 +471,9 @@ type appStateSnapshot struct {
 	Validators  map[string]*validator.Validator          `json:"validators,omitempty"`
 	Proposals   map[string]*governance.Proposal          `json:"proposals,omitempty"`
 	Votes       map[string][]governance.VoteRecord       `json:"votes,omitempty"`
-	Sanctions   map[string]*compliance.SanctionEntry     `json:"sanctions,omitempty"`
-	Markets     map[string]*clob.MarketInfo              `json:"markets,omitempty"`
+	Sanctions    map[string]*compliance.SanctionEntry               `json:"sanctions,omitempty"`
+	Markets      map[string]*clob.MarketInfo                        `json:"markets,omitempty"`
+	OraclePrices map[string]map[string]*oracle.PriceSubmission      `json:"oracle_prices,omitempty"`
 }
 
 // SaveSnapshot serialises the current state to disk atomically (write-then-rename).
@@ -448,7 +493,8 @@ func (s *AppState) SaveSnapshot(path string) error {
 		Proposals:   make(map[string]*governance.Proposal, len(s.Proposals)),
 		Votes:       make(map[string][]governance.VoteRecord, len(s.Votes)),
 		Sanctions:   make(map[string]*compliance.SanctionEntry, len(s.Sanctions)),
-		Markets:     make(map[string]*clob.MarketInfo, len(s.Markets)),
+		Markets:      make(map[string]*clob.MarketInfo, len(s.Markets)),
+		OraclePrices: make(map[string]map[string]*oracle.PriceSubmission, len(s.OraclePrices)),
 	}
 	for k, v := range s.Accounts {
 		snap.Accounts[k] = v
@@ -490,6 +536,13 @@ func (s *AppState) SaveSnapshot(path string) error {
 	}
 	for k, v := range s.Markets {
 		snap.Markets[k] = v
+	}
+	for mkt, subs := range s.OraclePrices {
+		cp := make(map[string]*oracle.PriceSubmission, len(subs))
+		for vid, sub := range subs {
+			cp[vid] = sub
+		}
+		snap.OraclePrices[mkt] = cp
 	}
 	s.globalMu.Unlock()
 
@@ -567,6 +620,9 @@ func (s *AppState) LoadSnapshot(path string) error {
 	}
 	if snap.Markets != nil {
 		s.Markets = snap.Markets
+	}
+	if snap.OraclePrices != nil {
+		s.OraclePrices = snap.OraclePrices
 	}
 	return nil
 }

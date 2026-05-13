@@ -26,6 +26,7 @@ const (
 	TxUnsanctionAccount
 	TxHaltMarket
 	TxResumeMarket
+	TxSubmitPrice
 )
 
 type Transaction struct {
@@ -127,6 +128,9 @@ func computeTxHash(tx Transaction, blockHeight int64) string {
 		data += ":" + p.MarketId + ":" + p.Reason
 	case ResumeMarketPayload:
 		data += ":" + p.MarketId
+	case SubmitPricePayload:
+		data += ":" + p.MarketId + ":" + p.ValidatorId
+		data += ":" + strconv.FormatInt(p.Price, 10)
 	}
 
 	data += ":" + strconv.FormatInt(blockHeight, 10)

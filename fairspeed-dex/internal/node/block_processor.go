@@ -9,6 +9,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
+	"github.com/byunghee1994/fairspeed-dex/internal/oracle"
 	"github.com/byunghee1994/fairspeed-dex/internal/risk"
 	"github.com/byunghee1994/fairspeed-dex/internal/settlement"
 	"github.com/byunghee1994/fairspeed-dex/internal/state"
@@ -243,6 +244,26 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 			BlockHeight: blockHeight,
 			Payload: state.MarketResumedPayload{
 				MarketId:    payload.MarketId,
+				BlockHeight: blockHeight,
+			},
+		})
+		return nil
+
+	case fairbatch.TxSubmitPrice:
+		payload := tx.Payload.(fairbatch.SubmitPricePayload)
+		p.AppState.SetOraclePrice(oracle.PriceSubmission{
+			MarketId:    payload.MarketId,
+			ValidatorId: payload.ValidatorId,
+			Price:       payload.Price,
+			BlockHeight: blockHeight,
+		})
+		markPrice := p.AppState.GetMarkPrice(payload.MarketId)
+		p.EventBus.Publish(state.Event{
+			Type:        state.EventMarkPriceUpdated,
+			BlockHeight: blockHeight,
+			Payload: state.MarkPriceUpdatedPayload{
+				MarketId:    payload.MarketId,
+				MarkPrice:   markPrice,
 				BlockHeight: blockHeight,
 			},
 		})
