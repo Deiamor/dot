@@ -557,6 +557,14 @@ func (p *LocalBlockProcessor) buildGovernancePayload(sp fairbatch.SubmitProposal
 			BaseAsset:  sp.BaseAsset,
 			QuoteAsset: sp.QuoteAsset,
 		}
+	case governance.TypeUpdatePerpConfig:
+		return governance.UpdatePerpConfigParams{
+			MarketId:             sp.MarketId,
+			InitialMarginBps:     sp.InitialMarginBps,
+			MaintenanceMarginBps: sp.MaintenanceMarginBps,
+			MaxLeverage:          sp.MaxLeverage,
+			MaxFundingRateBps:    sp.MaxFundingRateBps,
+		}
 	default:
 		return nil
 	}

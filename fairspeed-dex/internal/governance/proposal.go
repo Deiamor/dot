@@ -30,6 +30,7 @@ const (
 	TypeUpdateFeePolicy  ProposalType = "UpdateFeePolicy"
 	TypeUpdateRiskPolicy ProposalType = "UpdateRiskPolicy"
 	TypeListMarket       ProposalType = "ListMarket"
+	TypeUpdatePerpConfig ProposalType = "UpdatePerpConfig"
 )
 
 type VoteChoice string
@@ -64,6 +65,16 @@ type ListMarketParams struct {
 	MarketId   string
 	BaseAsset  string
 	QuoteAsset string
+}
+
+// UpdatePerpConfigParams are the execution parameters for an UpdatePerpConfig proposal.
+// Zero values are ignored — only non-zero fields are applied.
+type UpdatePerpConfigParams struct {
+	MarketId             string
+	InitialMarginBps     int64 // 0 = keep current
+	MaintenanceMarginBps int64 // 0 = keep current
+	MaxLeverage          int64 // 0 = keep current
+	MaxFundingRateBps    int64 // 0 = keep current
 }
 
 // Proposal represents a governance proposal.

@@ -18,6 +18,7 @@ type ParameterExecutor interface {
 	UpdateFeePolicy(params UpdateFeePolicyParams) error
 	UpdateRiskPolicy(params UpdateRiskPolicyParams) error
 	ListMarket(params ListMarketParams) error
+	UpdatePerpConfig(params UpdatePerpConfigParams) error
 }
 
 // EventPublisher is the subset of the event bus governance needs.
@@ -163,6 +164,10 @@ func (k *GovernanceKeeper) execute(p Proposal, executor ParameterExecutor, block
 	case TypeListMarket:
 		if params, ok := p.Payload.(ListMarketParams); ok {
 			err = executor.ListMarket(params)
+		}
+	case TypeUpdatePerpConfig:
+		if params, ok := p.Payload.(UpdatePerpConfigParams); ok {
+			err = executor.UpdatePerpConfig(params)
 		}
 	}
 	if err != nil {

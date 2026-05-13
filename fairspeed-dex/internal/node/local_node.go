@@ -314,6 +314,29 @@ func (n *LocalNode) ListMarket(params governance.ListMarketParams) error {
 	return nil
 }
 
+// UpdatePerpConfig applies approved changes to a PERP market's config.
+// Only non-zero fields in params are applied; zero means "keep current value".
+func (n *LocalNode) UpdatePerpConfig(params governance.UpdatePerpConfigParams) error {
+	cfg, ok := n.AppState.GetPerpConfig(params.MarketId)
+	if !ok {
+		return fmt.Errorf("PERP market not found: %s", params.MarketId)
+	}
+	if params.InitialMarginBps != 0 {
+		cfg.InitialMarginBps = params.InitialMarginBps
+	}
+	if params.MaintenanceMarginBps != 0 {
+		cfg.MaintenanceMarginBps = params.MaintenanceMarginBps
+	}
+	if params.MaxLeverage != 0 {
+		cfg.MaxLeverage = params.MaxLeverage
+	}
+	if params.MaxFundingRateBps != 0 {
+		cfg.MaxFundingRateBps = params.MaxFundingRateBps
+	}
+	n.AppState.SetMarketAsPerp(params.MarketId, *cfg)
+	return nil
+}
+
 // IsSanctioned returns true if the account is on the on-chain sanctions list.
 func (n *LocalNode) IsSanctioned(accountId string) bool {
 	return n.AppState.IsSanctioned(accountId)

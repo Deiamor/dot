@@ -71,6 +71,11 @@ type SubmitProposalPayload struct {
 	MarketId   string
 	BaseAsset  string
 	QuoteAsset string
+	// PERP config params (ProposalType="UpdatePerpConfig")
+	InitialMarginBps     int64 // 0 = keep current
+	MaintenanceMarginBps int64 // 0 = keep current
+	MaxLeverage          int64 // 0 = keep current
+	MaxFundingRateBps    int64 // 0 = keep current
 }
 
 // VotePayload casts a stake-weighted vote on a governance proposal.
