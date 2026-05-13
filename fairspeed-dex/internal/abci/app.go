@@ -236,6 +236,69 @@ func (a *DEXApplication) Query(req RequestQuery) ResponseQuery {
 		val, _ := json.Marshal(bal)
 		return ResponseQuery{Code: CodeOK, Value: val}
 
+	case "validators":
+		if len(parts) == 1 {
+			// /validators → all active validators
+			validators := a.node.ActiveValidatorSet()
+			val, _ := json.Marshal(validators)
+			return ResponseQuery{Code: CodeOK, Value: val}
+		}
+		// /validators/{id}
+		id := parts[1]
+		v, ok := a.node.GetValidatorInfo(id)
+		if !ok {
+			return errQuery("validator not found: " + id)
+		}
+		val, _ := json.Marshal(v)
+		return ResponseQuery{Code: CodeOK, Value: val}
+
+	case "governance":
+		if len(parts) < 2 {
+			return errQuery("usage: /governance/proposals or /governance/proposals/{id} or /governance/votes/{id}")
+		}
+		switch parts[1] {
+		case "proposals":
+			if len(parts) == 2 {
+				proposals := a.node.AllProposals()
+				val, _ := json.Marshal(proposals)
+				return ResponseQuery{Code: CodeOK, Value: val}
+			}
+			// /governance/proposals/{id}
+			propId := parts[2]
+			p, ok := a.node.GetProposal(propId)
+			if !ok {
+				return errQuery("proposal not found: " + propId)
+			}
+			val, _ := json.Marshal(p)
+			return ResponseQuery{Code: CodeOK, Value: val}
+		case "votes":
+			if len(parts) < 3 {
+				return errQuery("usage: /governance/votes/{proposalId}")
+			}
+			propId := parts[2]
+			votes := a.node.AppState.GetVotesForProposal(propId)
+			val, _ := json.Marshal(votes)
+			return ResponseQuery{Code: CodeOK, Value: val}
+		default:
+			return errQuery("unknown governance path: " + req.Path)
+		}
+
+	case "kyc":
+		if len(parts) < 2 {
+			return errQuery("usage: /kyc/{accountId}")
+		}
+		accountId := parts[1]
+		status := a.node.GetKYCStatus(accountId)
+		result := struct {
+			AccountId string `json:"AccountId"`
+			KYCStatus string `json:"KYCStatus"`
+		}{
+			AccountId: accountId,
+			KYCStatus: string(status),
+		}
+		val, _ := json.Marshal(result)
+		return ResponseQuery{Code: CodeOK, Value: val}
+
 	default:
 		return errQuery("unknown path: " + req.Path)
 	}
@@ -254,7 +317,26 @@ func (a *DEXApplication) computeAppHash() []byte {
 	}
 	sort.Strings(ids)
 
-	data := fmt.Sprintf("h=%d:trades=%d:%s", height, len(trades), strings.Join(ids, ","))
+	// Include active validator set.
+	validators := a.node.ActiveValidatorSet()
+	valStrs := make([]string, len(validators))
+	for i, v := range validators {
+		valStrs[i] = fmt.Sprintf("%s:%d", v.ValidatorId, v.Stake)
+	}
+	sort.Strings(valStrs)
+
+	// Include governance proposals.
+	proposals := a.node.AllProposals()
+	propStrs := make([]string, len(proposals))
+	for i, p := range proposals {
+		propStrs[i] = fmt.Sprintf("%s:%s", p.ProposalId, p.Status)
+	}
+	sort.Strings(propStrs)
+
+	data := fmt.Sprintf("h=%d:trades=%d:%s:vals=%d:%s:props=%d:%s",
+		height, len(trades), strings.Join(ids, ","),
+		len(validators), strings.Join(valStrs, ","),
+		len(proposals), strings.Join(propStrs, ","))
 	h := sha256.Sum256([]byte(data))
 	return h[:]
 }
@@ -307,6 +389,46 @@ func validateTxBasic(tx fairbatch.Transaction) error {
 		p := tx.Payload.(fairbatch.WithdrawPayload)
 		if p.AccountId == "" || p.AssetId == "" || p.Amount <= 0 {
 			return fmt.Errorf("Withdraw: invalid fields")
+		}
+	case fairbatch.TxKYCApprove:
+		p := tx.Payload.(fairbatch.KYCApprovePayload)
+		if p.AccountId == "" {
+			return fmt.Errorf("KYCApprove: missing account ID")
+		}
+		if p.Status != "APPROVED" && p.Status != "REVOKED" && p.Status != "EXEMPT" {
+			return fmt.Errorf("KYCApprove: status must be APPROVED, REVOKED, or EXEMPT")
+		}
+	case fairbatch.TxBondValidator:
+		p := tx.Payload.(fairbatch.BondValidatorPayload)
+		if p.ValidatorId == "" || p.StakeAmount <= 0 {
+			return fmt.Errorf("BondValidator: missing validator ID or non-positive stake")
+		}
+	case fairbatch.TxUnbondValidator:
+		p := tx.Payload.(fairbatch.UnbondValidatorPayload)
+		if p.ValidatorId == "" {
+			return fmt.Errorf("UnbondValidator: missing validator ID")
+		}
+	case fairbatch.TxSubmitProposal:
+		p := tx.Payload.(fairbatch.SubmitProposalPayload)
+		if p.Title == "" {
+			return fmt.Errorf("SubmitProposal: missing title")
+		}
+		if p.VoteEndHeight <= 0 {
+			return fmt.Errorf("SubmitProposal: vote_end_height must be positive")
+		}
+		if p.ProposalType != "UpdateFeePolicy" && p.ProposalType != "UpdateRiskPolicy" && p.ProposalType != "ListMarket" {
+			return fmt.Errorf("SubmitProposal: proposal_type must be UpdateFeePolicy, UpdateRiskPolicy, or ListMarket")
+		}
+	case fairbatch.TxVote:
+		p := tx.Payload.(fairbatch.VotePayload)
+		if p.ProposalId == "" {
+			return fmt.Errorf("Vote: missing proposal ID")
+		}
+		if p.ValidatorId == "" {
+			return fmt.Errorf("Vote: missing validator ID")
+		}
+		if p.Choice != "YES" && p.Choice != "NO" && p.Choice != "ABSTAIN" {
+			return fmt.Errorf("Vote: choice must be YES, NO, or ABSTAIN")
 		}
 	}
 	return nil

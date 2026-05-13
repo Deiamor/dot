@@ -216,6 +216,11 @@ func (n *LocalNode) GetValidatorStake(validatorId string) int64 {
 	return v.Stake
 }
 
+// GetValidatorInfo returns the full validator record for the given ID.
+func (n *LocalNode) GetValidatorInfo(validatorId string) (validator.Validator, bool) {
+	return n.validatorKeeper.GetValidator(validatorId)
+}
+
 // SlashValidator slashes a validator for the given reason ("DOUBLE_SIGN" or "FRONT_RUN").
 // Returns the amount slashed.
 func (n *LocalNode) SlashValidator(validatorId, reason string) (int64, error) {
