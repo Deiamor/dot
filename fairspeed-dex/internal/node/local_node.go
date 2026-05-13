@@ -411,6 +411,18 @@ func (n *LocalNode) SetIndexPrice(marketId string, price int64) {
 	n.AppState.SetIndexPrice(marketId, price)
 }
 
+// AllPositionsForAccount returns all non-zero positions held by accountId.
+func (n *LocalNode) AllPositionsForAccount(accountId string) []risk.NetPosition {
+	all := n.positionTracker.AllPositions()
+	var out []risk.NetPosition
+	for _, p := range all {
+		if p.AccountId == accountId && p.NetQuantity != 0 {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // GetConditionalOrder returns a conditional order by ID.
 func (n *LocalNode) GetConditionalOrder(orderId string) (*clob.ConditionalOrder, bool) {
 	return n.AppState.GetConditionalOrder(orderId)

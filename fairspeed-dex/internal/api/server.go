@@ -8,6 +8,20 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/state"
 )
 
+// corsMiddleware adds CORS headers to allow browser access from any origin.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Server exposes a LocalNode over HTTP REST + SSE streaming.
 type Server struct {
 	node *node.LocalNode
@@ -26,7 +40,7 @@ func NewServer(n *node.LocalNode, addr string) *Server {
 		mux:  http.NewServeMux(),
 		hub:  newStreamHub(),
 	}
-	s.srv = &http.Server{Addr: addr, Handler: s.mux}
+	s.srv = &http.Server{Addr: addr, Handler: corsMiddleware(s.mux)}
 	s.registerRoutes()
 	s.subscribeEvents()
 	return s
@@ -36,7 +50,13 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/orders", s.handleSubmitOrder)
 	s.mux.HandleFunc("/orderbook/", s.handleGetOrderBook)
 	s.mux.HandleFunc("/trades/", s.handleGetTrades)
+	s.mux.HandleFunc("/accounts", s.handleAccounts)
 	s.mux.HandleFunc("/accounts/", s.handleGetAccount)
+	s.mux.HandleFunc("/sessions", s.handleCreateSession)
+	s.mux.HandleFunc("/markets", s.handleGetMarkets)
+	s.mux.HandleFunc("/markprice/", s.handleGetMarkPrice)
+	s.mux.HandleFunc("/balances/", s.handleGetBalances)
+	s.mux.HandleFunc("/positions/", s.handleGetPositions)
 	s.mux.HandleFunc("/stream/orderbook", s.handleStreamOrderBook)
 	s.mux.HandleFunc("/stream/trades", s.handleStreamTrades)
 	s.mux.HandleFunc("/reports/trades", s.handleComplianceReport)

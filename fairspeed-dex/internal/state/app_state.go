@@ -1015,3 +1015,53 @@ func (s *AppState) AllPerpMarkets() map[string]*clob.PerpConfig {
 	}
 	return out
 }
+
+// EachMarket calls fn for every registered market info entry.
+func (s *AppState) EachMarket(fn func(marketId string, info *clob.MarketInfo)) {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	for id, m := range s.Markets {
+		fn(id, m)
+	}
+}
+
+// AllBalancesForAccount returns all non-zero balances for an account.
+func (s *AppState) AllBalancesForAccount(accountId string) []*asset.Balance {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	m := s.Balances[accountId]
+	out := make([]*asset.Balance, 0, len(m))
+	for _, b := range m {
+		if b.Available != 0 || b.Reserved != 0 {
+			cp := *b
+			out = append(out, &cp)
+		}
+	}
+	return out
+}
+
+// FindAccountByOwner returns the account whose OwnerAddress matches, or nil.
+func (s *AppState) FindAccountByOwner(ownerAddress string) *account.NativeAccount {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	for _, acc := range s.Accounts {
+		if acc.OwnerAddress == ownerAddress {
+			cp := *acc
+			return &cp
+		}
+	}
+	return nil
+}
+
+// LatestSessionForAccount returns any active session ID for accountId.
+// Returns "" if no sessions exist for the account.
+func (s *AppState) LatestSessionForAccount(accountId string) string {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	for _, sess := range s.Sessions {
+		if sess.AccountId == accountId {
+			return sess.SessionId
+		}
+	}
+	return ""
+}
