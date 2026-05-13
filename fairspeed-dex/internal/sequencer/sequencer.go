@@ -7,6 +7,12 @@
 //  3. Round-robin broadcast to validator CometBFT RPC endpoints via
 //     broadcast_tx_async, so no single validator is a bottleneck.
 //  4. Backpressure — if the internal queue is full, /tx returns 429.
+//  5. Health check endpoint (GET /healthz) for load-balancer probing.
+//
+// Multiple sequencer instances can run simultaneously (active-active).
+// CometBFT deduplicates transactions by hash in its mempool, so the same
+// tx submitted through two sequencers is safe and results in one execution.
+// Use SequencerPool to route submissions across healthy instances.
 //
 // The sequencer does NOT participate in consensus; it is a pure ingress
 // service. Validators execute and order transactions via PrepareProposal /
@@ -102,6 +108,7 @@ func (s *Sequencer) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/tx", s.handleSubmit)
 	mux.HandleFunc("/status", s.handleStatus)
+	mux.HandleFunc("/healthz", s.handleHealthz)
 
 	srv := &http.Server{Addr: s.cfg.ListenAddr, Handler: mux}
 
@@ -158,6 +165,25 @@ func (s *Sequencer) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		atomic.AddUint64(&s.stats.Dropped, 1)
 		http.Error(w, "queue full", http.StatusTooManyRequests)
 	}
+}
+
+// handleHealthz is the liveness/readiness probe for load balancers.
+//
+// GET /healthz
+// Response 200: {"status":"ok","queue_depth":N}   — healthy, accepting txs
+// Response 503: {"status":"full","queue_depth":N}  — queue saturated (≥95%)
+func (s *Sequencer) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	depth := len(s.queue)
+	cap := cap(s.queue)
+	// Treat ≥95% fill as degraded so the pool can route away before 429.
+	if cap > 0 && depth*100/cap >= 95 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprintf(w, `{"status":"full","queue_depth":%d}`, depth)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"status":"ok","queue_depth":%d}`, depth)
 }
 
 // handleStatus returns live sequencer metrics as JSON.
@@ -217,6 +243,27 @@ func (s *Sequencer) broadcast(txs [][]byte) {
 			log.Printf("[sequencer] broadcast to %s failed: %v", endpoint, err)
 		} else {
 			atomic.AddUint64(&s.stats.Broadcast, 1)
+		}
+	}
+}
+
+// Handler returns an http.Handler for use with httptest.NewServer.
+// The batch loop is not started by this method; call Start for production use.
+func (s *Sequencer) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/tx", s.handleSubmit)
+	mux.HandleFunc("/status", s.handleStatus)
+	mux.HandleFunc("/healthz", s.handleHealthz)
+	return mux
+}
+
+// FillForTest stuffs n dummy bytes into the queue, for health-check unit tests.
+func (s *Sequencer) FillForTest(n int) {
+	dummy := []byte("{}")
+	for i := 0; i < n; i++ {
+		select {
+		case s.queue <- dummy:
+		default:
 		}
 	}
 }
