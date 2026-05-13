@@ -156,6 +156,19 @@ func (pt *PositionTracker) SetMarginMode(accountId, marketId string, mode Margin
 	p.MarginMode = mode
 }
 
+// ForceClose zeroes out a position (used by the liquidation engine).
+func (pt *PositionTracker) ForceClose(accountId, marketId string) {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	key := positionKey(accountId, marketId)
+	if p := pt.positions[key]; p != nil {
+		p.NetQuantity = 0
+		p.AvgEntryPrice = 0
+		p.AllocatedMargin = 0
+		p.AccruedFunding = 0
+	}
+}
+
 // AllPositions returns a snapshot of all non-zero positions.
 func (pt *PositionTracker) AllPositions() []NetPosition {
 	pt.mu.RLock()

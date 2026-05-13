@@ -91,6 +91,7 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 		GovernanceExecutor: n,
 		SanctionsStore:     appState,
 		PositionTracker:    positionTracker,
+		InsuranceFund:      insuranceFund,
 		EventBus:           bus,
 		AppState:           appState,
 		DistributionAssets: []string{"USDC"},

@@ -45,6 +45,10 @@ const (
 	EventPerpMarketRegistered   EventType = "PERP_MARKET_REGISTERED"
 	EventPerpPositionUpdated    EventType = "PERP_POSITION_UPDATED"
 	EventFundingSettled         EventType = "FUNDING_SETTLED"
+	EventLiquidationTriggered   EventType = "LIQUIDATION_TRIGGERED"
+	EventLiquidationFilled      EventType = "LIQUIDATION_FILLED"
+	EventInsuranceDrawdown      EventType = "INSURANCE_DRAWDOWN"
+	EventSocializedLoss         EventType = "SOCIALIZED_LOSS"
 
 	EventAll EventType = "*"
 )
@@ -297,6 +301,41 @@ type BridgeCompletedPayload struct {
 	AccountId   string
 	AssetId     string
 	Amount      int64
+	BlockHeight int64
+}
+
+// LiquidationTriggeredPayload is emitted when a position breaches maintenance margin.
+type LiquidationTriggeredPayload struct {
+	AccountId         string
+	MarketId          string
+	NetQuantity       int64
+	MarkPrice         int64
+	MaintenanceMargin int64
+	BlockHeight       int64
+}
+
+// LiquidationFilledPayload is emitted when a liquidation is completed.
+type LiquidationFilledPayload struct {
+	AccountId   string
+	MarketId    string
+	FilledQty   int64
+	FilledPrice int64
+	PnL         int64
+	BlockHeight int64
+}
+
+// InsuranceDrawdownPayload is emitted when the insurance fund absorbs a liquidation loss.
+type InsuranceDrawdownPayload struct {
+	MarketId    string
+	Amount      int64
+	Remaining   int64
+	BlockHeight int64
+}
+
+// SocializedLossPayload is emitted when insurance fund is exhausted during liquidation.
+type SocializedLossPayload struct {
+	MarketId    string
+	LossAmount  int64
 	BlockHeight int64
 }
 

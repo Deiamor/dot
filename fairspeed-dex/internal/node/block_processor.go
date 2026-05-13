@@ -34,6 +34,7 @@ type LocalBlockProcessor struct {
 	GovernanceExecutor governance.ParameterExecutor
 	SanctionsStore     compliance.SanctionsStore
 	PositionTracker    *risk.PositionTracker
+	InsuranceFund      *risk.InsuranceFund
 	EventBus           *state.EventBus
 	AppState           *state.AppState
 	// DistributionAssets lists the asset IDs distributed from the treasury to validators.
@@ -89,6 +90,9 @@ func (p *LocalBlockProcessor) ProcessBlock(block LocalBlock) (BlockResult, error
 
 	// Settle funding payments for PERP markets that have reached their interval.
 	p.settleFunding(block.Height)
+
+	// Check all PERP positions for maintenance margin breach and liquidate as needed.
+	p.checkAndLiquidate(block.Height)
 
 	allTrades = p.SettlementKeeper.TradesForBlock(block.Height)
 	p.AppState.IncrementBlock()
@@ -868,6 +872,124 @@ func (p *LocalBlockProcessor) settleFunding(blockHeight int64) {
 				TotalLongsPaid:      totalLongsPaid,
 				TotalShortsReceived: totalShortsReceived,
 				BlockHeight:         blockHeight,
+			},
+		})
+	}
+}
+
+// checkAndLiquidate inspects all open PERP positions for maintenance margin breach
+// and liquidates those that are undercollateralized.
+func (p *LocalBlockProcessor) checkAndLiquidate(blockHeight int64) {
+	if p.PositionTracker == nil {
+		return
+	}
+	positions := p.PositionTracker.AllPositions()
+	for _, pos := range positions {
+		if pos.NetQuantity == 0 {
+			continue
+		}
+		cfg, isPerp := p.AppState.GetPerpConfig(pos.MarketId)
+		if !isPerp {
+			continue
+		}
+		// Skip halted markets.
+		if p.AppState.GetMarketStatus(pos.MarketId) != clob.MarketStatusActive {
+			continue
+		}
+
+		markPrice := p.AppState.GetMarkPrice(pos.MarketId)
+		if markPrice == 0 {
+			continue
+		}
+
+		absQty := pos.NetQuantity
+		if absQty < 0 {
+			absQty = -absQty
+		}
+
+		unrealizedPnL := pos.UnrealizedPnL(markPrice)
+		maintenanceMargin := absQty * pos.AvgEntryPrice * cfg.MaintenanceMarginBps / 10_000
+
+		// Healthy position: equity > maintenance margin.
+		equity := pos.AllocatedMargin + unrealizedPnL
+		if equity > maintenanceMargin {
+			continue
+		}
+
+		quoteAsset := cfg.QuoteAsset
+
+		p.EventBus.Publish(state.Event{
+			Type:        state.EventLiquidationTriggered,
+			BlockHeight: blockHeight,
+			Payload: state.LiquidationTriggeredPayload{
+				AccountId:         pos.AccountId,
+				MarketId:          pos.MarketId,
+				NetQuantity:       pos.NetQuantity,
+				MarkPrice:         markPrice,
+				MaintenanceMargin: maintenanceMargin,
+				BlockHeight:       blockHeight,
+			},
+		})
+
+		// Release all reserved margin back to Available.
+		if pos.AllocatedMargin > 0 {
+			_ = p.AssetKeeper.Release(pos.AccountId, quoteAsset, pos.AllocatedMargin)
+		}
+
+		if equity >= 0 {
+			// Position has remaining equity: deduct the loss (allocatedMargin - equity).
+			// Net result: user keeps equity in Available.
+			loss := pos.AllocatedMargin - equity
+			if loss > 0 {
+				_ = p.AssetKeeper.DeductAvailable(pos.AccountId, quoteAsset, loss)
+			}
+		} else {
+			// Bankrupt: loss exceeds allocated margin.
+			// Deduct the full margin from Available.
+			_ = p.AssetKeeper.DeductAvailable(pos.AccountId, quoteAsset, pos.AllocatedMargin)
+			// Additional shortfall = |equity|
+			shortfall := -equity
+			if p.InsuranceFund != nil {
+				drawn := p.InsuranceFund.Drawdown(quoteAsset, shortfall)
+				remaining := p.InsuranceFund.Balance(quoteAsset)
+				p.EventBus.Publish(state.Event{
+					Type:        state.EventInsuranceDrawdown,
+					BlockHeight: blockHeight,
+					Payload: state.InsuranceDrawdownPayload{
+						MarketId:    pos.MarketId,
+						Amount:      drawn,
+						Remaining:   remaining,
+						BlockHeight: blockHeight,
+					},
+				})
+				if drawn < shortfall {
+					socializedLoss := shortfall - drawn
+					p.EventBus.Publish(state.Event{
+						Type:        state.EventSocializedLoss,
+						BlockHeight: blockHeight,
+						Payload: state.SocializedLossPayload{
+							MarketId:    pos.MarketId,
+							LossAmount:  socializedLoss,
+							BlockHeight: blockHeight,
+						},
+					})
+				}
+			}
+		}
+
+		// Zero out the position.
+		p.PositionTracker.ForceClose(pos.AccountId, pos.MarketId)
+
+		p.EventBus.Publish(state.Event{
+			Type:        state.EventLiquidationFilled,
+			BlockHeight: blockHeight,
+			Payload: state.LiquidationFilledPayload{
+				AccountId:   pos.AccountId,
+				MarketId:    pos.MarketId,
+				FilledQty:   absQty,
+				FilledPrice: markPrice,
+				PnL:         unrealizedPnL,
+				BlockHeight: blockHeight,
 			},
 		})
 	}
