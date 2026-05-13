@@ -5,6 +5,32 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/state"
 )
 
+// --- Auth DTOs ---
+
+// NonceResponse is returned by GET /auth/nonce.
+type NonceResponse struct {
+	Nonce    string `json:"nonce"`
+	IssuedAt string `json:"issued_at"`
+	Message  string `json:"message"`
+}
+
+// ConnectRequest is the JSON body for POST /auth/connect.
+type ConnectRequest struct {
+	Address          string `json:"address"`           // Ethereum address (checksummed or lower)
+	Signature        string `json:"signature"`         // 65-byte hex from personal_sign
+	Nonce            string `json:"nonce"`             // nonce from /auth/nonce
+	IssuedAt         string `json:"issued_at"`         // RFC3339 timestamp from /auth/nonce
+	SessionPublicKey string `json:"session_public_key"` // Ed25519 hex public key (optional)
+}
+
+// ConnectResponse is returned by POST /auth/connect.
+type ConnectResponse struct {
+	AccountId        string `json:"account_id"`
+	SessionId        string `json:"session_id"`
+	WalletAddress    string `json:"wallet_address"`
+	SessionPublicKey string `json:"session_public_key"`
+}
+
 // SubmitOrderRequest is the JSON body for POST /orders.
 type SubmitOrderRequest struct {
 	AccountId     string `json:"account_id"`

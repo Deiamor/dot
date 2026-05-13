@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/byunghee1994/fairspeed-dex/internal/auth"
 	"github.com/byunghee1994/fairspeed-dex/internal/node"
 	"github.com/byunghee1994/fairspeed-dex/internal/state"
 )
@@ -30,6 +31,7 @@ type Server struct {
 	hub         *StreamHub
 	faucetCfg   FaucetConfig
 	faucetState *faucetState
+	nonceStore  *auth.NonceStore
 }
 
 // NewServer creates a new API server bound to addr.
@@ -48,6 +50,7 @@ func NewServerWithFaucet(n *node.LocalNode, addr string, faucetCfg FaucetConfig)
 		hub:         newStreamHub(),
 		faucetCfg:   faucetCfg,
 		faucetState: newFaucetState(),
+		nonceStore:  auth.NewNonceStore(),
 	}
 	s.srv = &http.Server{Addr: addr, Handler: corsMiddleware(s.mux)}
 	s.registerRoutes()
@@ -80,6 +83,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/faucet/", s.handleFaucet)
 	s.mux.HandleFunc("/index-price", s.handleIndexPrice)
 	s.mux.HandleFunc("/index-price/", s.handleIndexPrice)
+	s.mux.HandleFunc("/auth/nonce", s.handleAuthNonce)
+	s.mux.HandleFunc("/auth/connect", s.handleAuthConnect)
+	s.mux.HandleFunc("/height", s.handleHeight)
 }
 
 // subscribeEvents wires the node's EventBus to SSE hub broadcasts.

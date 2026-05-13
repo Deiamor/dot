@@ -11,7 +11,11 @@ interface DexStore {
   selectedMarket: string
   orderBook: OrderBook | null
   recentTrades: Trade[]
-  setAccount: (accountId: string, sessionId: string) => void
+  // sessionKey is NOT persisted — it lives only in memory for this page session.
+  // The CryptoKey is non-extractable; losing it on refresh requires re-auth.
+  sessionKey: CryptoKey | null
+  setAccount: (accountId: string, sessionId: string, walletAddress?: string) => void
+  setSessionKey: (key: CryptoKey) => void
   setWallet: (address: string) => void
   setMarket: (marketId: string) => void
   setOrderBook: (ob: OrderBook) => void
@@ -28,7 +32,10 @@ export const useDexStore = create<DexStore>()(
       selectedMarket: 'BTC-USDC-PERP',
       orderBook: null,
       recentTrades: [],
-      setAccount: (accountId, sessionId) => set({ accountId, sessionId }),
+      sessionKey: null,
+      setAccount: (accountId, sessionId, walletAddress) =>
+        set({ accountId, sessionId, ...(walletAddress ? { walletAddress } : {}) }),
+      setSessionKey: (key) => set({ sessionKey: key }),
       setWallet: (address) => set({ walletAddress: address }),
       setMarket: (marketId) => set({ selectedMarket: marketId }),
       setOrderBook: (ob) => set({ orderBook: ob }),
@@ -36,16 +43,18 @@ export const useDexStore = create<DexStore>()(
         set((state) => ({
           recentTrades: [trade, ...state.recentTrades].slice(0, 30),
         })),
-      clearAccount: () => set({ accountId: null, sessionId: null, walletAddress: null }),
+      clearAccount: () =>
+        set({ accountId: null, sessionId: null, walletAddress: null, sessionKey: null }),
     }),
     {
       name: 'fairspeed-dex',
+      // sessionKey intentionally excluded — non-extractable CryptoKey can't be serialized
       partialize: (state) => ({
         accountId: state.accountId,
         sessionId: state.sessionId,
         walletAddress: state.walletAddress,
         selectedMarket: state.selectedMarket,
       }),
-    }
-  )
+    },
+  ),
 )

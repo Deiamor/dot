@@ -209,6 +209,61 @@ export async function cancelConditionalOrder(orderId: string, accountId: string)
   if (!res.ok) throw new Error(`Failed to cancel conditional order: ${res.status}`)
 }
 
+// --- Auth endpoints ---
+
+export interface NonceResponse {
+  nonce: string
+  issued_at: string
+  message: string
+}
+
+export interface ConnectResponse {
+  account_id: string
+  session_id: string
+  wallet_address: string
+  session_public_key: string
+}
+
+export interface ConnectRequest {
+  address: string
+  signature: string
+  nonce: string
+  issued_at: string
+  session_public_key: string
+}
+
+/** GET /auth/nonce?address=0x... — fetch a one-time SIWE challenge. */
+export async function getNonce(address: string): Promise<NonceResponse> {
+  const res = await fetch(`${BASE}/auth/nonce?address=${encodeURIComponent(address)}`, {
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error(`Failed to get nonce: ${res.status}`)
+  return res.json()
+}
+
+/** POST /auth/connect — verify SIWE signature, get DEX credentials. */
+export async function connectWallet(req: ConnectRequest): Promise<ConnectResponse> {
+  const res = await fetch(`${BASE}/auth/connect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Auth failed (${res.status}): ${body}`)
+  }
+  return res.json()
+}
+
+/** GET /height — returns the current block height. */
+export async function getHeight(): Promise<number> {
+  const res = await fetch(`${BASE}/height`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Failed to get height: ${res.status}`)
+  const data = await res.json()
+  return data.height as number
+}
+
 export interface OrderHistoryItem {
   order_id: string
   market_id: string
