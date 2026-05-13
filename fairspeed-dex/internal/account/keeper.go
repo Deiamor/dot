@@ -13,6 +13,7 @@ type AccountStore interface {
 type EventPublisher interface {
 	PublishAccountCreated(accountId, ownerAddress string, blockHeight int64)
 	PublishSessionCreated(sessionId, accountId string, blockHeight int64)
+	PublishKYCStatusUpdated(accountId, status string, blockHeight int64)
 }
 
 type AccountKeeper struct {
@@ -73,6 +74,18 @@ func (k *AccountKeeper) ValidateSession(sessionId, marketId string, blockHeight 
 		return nil, fmt.Errorf("session %s not allowed for market %s", sessionId, marketId)
 	}
 	return sess, nil
+}
+
+// UpdateKYCStatus sets the KYC status for an account and publishes the event.
+func (k *AccountKeeper) UpdateKYCStatus(accountId string, status KYCStatus, blockHeight int64) error {
+	acc, ok := k.store.GetAccount(accountId)
+	if !ok {
+		return fmt.Errorf("account not found: %s", accountId)
+	}
+	acc.KYCStatus = status
+	k.store.SetAccount(acc)
+	k.bus.PublishKYCStatusUpdated(accountId, string(status), blockHeight)
+	return nil
 }
 
 func (k *AccountKeeper) IncrementSequence(accountId string) (uint64, error) {

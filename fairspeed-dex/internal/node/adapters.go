@@ -108,6 +108,27 @@ func (a *busAdapter) PublishFeeCharged(accountId, tradeId, assetId string, amoun
 	})
 }
 
+func (a *busAdapter) PublishAMLAlert(tradeId, marketId string, notional, threshold int64, blockHeight int64) {
+	a.bus.Publish(state.Event{
+		Type:        state.EventAMLAlert,
+		BlockHeight: blockHeight,
+		Payload: state.AMLAlertPayload{
+			TradeId:   tradeId,
+			MarketId:  marketId,
+			Notional:  notional,
+			Threshold: threshold,
+		},
+	})
+}
+
+func (a *busAdapter) PublishKYCStatusUpdated(accountId, status string, blockHeight int64) {
+	a.bus.Publish(state.Event{
+		Type:        state.EventKYCStatusUpdated,
+		BlockHeight: blockHeight,
+		Payload:     state.KYCStatusUpdatedPayload{AccountId: accountId, Status: status},
+	})
+}
+
 func (a *busAdapter) PublishInsuranceFundDeposit(assetId string, amount int64, blockHeight int64) {
 	a.bus.Publish(state.Event{
 		Type:        state.EventInsuranceFundDeposit,

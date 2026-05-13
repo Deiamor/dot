@@ -8,11 +8,19 @@ type RiskPolicy struct {
 	// MaxPositionSize is the absolute net position limit per (account, market).
 	// 0 means unlimited.
 	MaxPositionSize int64
+	// RequireKYC enforces that the trader's account has KYCStatus == APPROVED or EXEMPT
+	// before an order is accepted. Set false for test / bootstrap environments.
+	RequireKYC bool
+	// AMLSingleTradeLimitNotional fires an AML alert when a single trade's notional
+	// (price × quantity) exceeds this value. 0 means disabled.
+	AMLSingleTradeLimitNotional int64
 }
 
 var DefaultRiskPolicy = RiskPolicy{
-	MaxOrderQuantity:         1_000_000,
-	MinOrderQuantity:         1,
-	MaxDailyVolumePerSession: 100_000_000,
-	MaxPositionSize:          0, // unlimited by default; set per-deployment
+	MaxOrderQuantity:            1_000_000,
+	MinOrderQuantity:            1,
+	MaxDailyVolumePerSession:    100_000_000,
+	MaxPositionSize:             0,    // unlimited
+	RequireKYC:                  false, // disabled in test/bootstrap
+	AMLSingleTradeLimitNotional: 0,    // disabled
 }

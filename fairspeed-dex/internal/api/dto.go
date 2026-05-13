@@ -54,7 +54,14 @@ type AccountResponse struct {
 	AccountId       string `json:"account_id"`
 	OwnerAddress    string `json:"owner_address"`
 	Status          string `json:"status"`
+	KYCStatus       string `json:"kyc_status"`
 	AccountSequence uint64 `json:"account_sequence"`
+}
+
+// KYCStatusResponse is returned by GET /reports/kyc/{accountId}.
+type KYCStatusResponse struct {
+	AccountId string `json:"account_id"`
+	KYCStatus string `json:"kyc_status"`
 }
 
 // TradeResponse is a single executed trade.

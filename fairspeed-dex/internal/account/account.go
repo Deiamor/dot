@@ -12,6 +12,16 @@ const (
 	AccountStatusDisabled AccountStatus = "DISABLED"
 )
 
+// KYCStatus tracks compliance verification state for an account.
+type KYCStatus string
+
+const (
+	KYCStatusPending  KYCStatus = "PENDING"  // awaiting verification
+	KYCStatusApproved KYCStatus = "APPROVED" // verified, trading allowed
+	KYCStatusRevoked  KYCStatus = "REVOKED"  // previously approved, now revoked
+	KYCStatusExempt   KYCStatus = "EXEMPT"   // test / bootstrap — always allowed
+)
+
 type NativeAccount struct {
 	AccountId           string
 	OwnerAddress        string
@@ -19,10 +29,13 @@ type NativeAccount struct {
 	WithdrawalPublicKey string
 	AccountSequence     uint64
 	Status              AccountStatus
+	KYCStatus           KYCStatus
 }
 
 // NewNativeAccount creates an account with a deterministic ID derived from seed
 // (the transaction hash). All nodes processing the same tx will produce the same ID.
+// New accounts start with KYCStatusPending — they must be approved before trading
+// when RequireKYC is enabled on the node's RiskPolicy.
 func NewNativeAccount(ownerAddress, rootPublicKey, withdrawalPublicKey, seed string) NativeAccount {
 	return NativeAccount{
 		AccountId:           seedID("acc", seed),
@@ -31,6 +44,7 @@ func NewNativeAccount(ownerAddress, rootPublicKey, withdrawalPublicKey, seed str
 		WithdrawalPublicKey: withdrawalPublicKey,
 		AccountSequence:     0,
 		Status:              AccountStatusActive,
+		KYCStatus:           KYCStatusPending,
 	}
 }
 

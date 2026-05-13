@@ -17,6 +17,7 @@ const (
 	TxSubmitOrder
 	TxCancelOrder
 	TxWithdraw
+	TxKYCApprove
 )
 
 type Transaction struct {
@@ -93,6 +94,8 @@ func computeTxHash(tx Transaction, blockHeight int64) string {
 		data += ":" + p.AccountId + ":" + p.AssetId
 		data += ":" + strconv.FormatInt(p.Amount, 10)
 		data += ":" + strconv.FormatUint(p.AccountSequence, 10)
+	case KYCApprovePayload:
+		data += ":" + p.AccountId + ":" + p.Status
 	}
 
 	data += ":" + strconv.FormatInt(blockHeight, 10)

@@ -39,6 +39,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/accounts/", s.handleGetAccount)
 	s.mux.HandleFunc("/stream/orderbook", s.handleStreamOrderBook)
 	s.mux.HandleFunc("/stream/trades", s.handleStreamTrades)
+	s.mux.HandleFunc("/reports/trades", s.handleComplianceReport)
+	s.mux.HandleFunc("/reports/kyc/", s.handleKYCStatus)
 }
 
 // subscribeEvents wires the node's EventBus to SSE hub broadcasts.

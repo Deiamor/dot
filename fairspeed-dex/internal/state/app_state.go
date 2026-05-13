@@ -81,6 +81,17 @@ func (s *AppState) SetAccount(a *account.NativeAccount) {
 	s.Accounts[a.AccountId] = a
 }
 
+// GetKYCStatus implements risk.KYCStore.
+func (s *AppState) GetKYCStatus(accountId string) account.KYCStatus {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	a, ok := s.Accounts[accountId]
+	if !ok {
+		return account.KYCStatusPending
+	}
+	return a.KYCStatus
+}
+
 func (s *AppState) GetSession(id string) (*account.TradingSession, bool) {
 	s.globalMu.RLock()
 	defer s.globalMu.RUnlock()

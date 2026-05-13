@@ -43,6 +43,8 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 	settlementKeeper := settlement.NewSettlementKeeper()
 
 	riskChecker := risk.NewRiskChecker(policy, positionTracker)
+	riskChecker.SetKYCStore(appState) // AppState implements risk.KYCStore
+	settlementEngine.SetAMLLimit(policy.AMLSingleTradeLimitNotional)
 	matcher := clob.PricePriorityMatcher{}
 
 	processor := &LocalBlockProcessor{
@@ -175,6 +177,11 @@ func (n *LocalNode) GetAccountSequence(accountId string) uint64 {
 		return 0
 	}
 	return acc.AccountSequence
+}
+
+// GetKYCStatus returns the current KYC status for an account.
+func (n *LocalNode) GetKYCStatus(accountId string) account.KYCStatus {
+	return n.AppState.GetKYCStatus(accountId)
 }
 
 // GetInsuranceFundBalance returns the current insurance fund balance for an asset.

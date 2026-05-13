@@ -22,6 +22,7 @@ type SettlementEventPublisher interface {
 	PublishFeeCharged(accountId, tradeId, assetId string, amount int64, feeType string, blockHeight int64)
 	PublishInsuranceFundDeposit(assetId string, amount int64, blockHeight int64)
 	PublishPositionUpdated(accountId, marketId string, netQuantity int64, blockHeight int64)
+	PublishAMLAlert(tradeId, marketId string, notional, threshold int64, blockHeight int64)
 }
 
 // InsuranceFundDepositor receives a portion of each taker fee.
@@ -42,6 +43,9 @@ type SettlementEngine struct {
 	bus       SettlementEventPublisher
 	insurance InsuranceFundDepositor
 	positions PositionUpdater
+	// amlLimit fires an AML alert when a trade's notional (price×qty) exceeds this.
+	// 0 = disabled.
+	amlLimit int64
 }
 
 func NewSettlementEngine(
@@ -52,6 +56,11 @@ func NewSettlementEngine(
 	positions PositionUpdater,
 ) *SettlementEngine {
 	return &SettlementEngine{store: store, feeCalc: feeCalc, bus: bus, insurance: insurance, positions: positions}
+}
+
+// SetAMLLimit configures the notional threshold above which trades trigger an AML alert.
+func (e *SettlementEngine) SetAMLLimit(limit int64) {
+	e.amlLimit = limit
 }
 
 // Settle applies each MatchResult to balances and returns the resulting TradeExecutions.
@@ -121,6 +130,11 @@ func (e *SettlementEngine) settleTrade(r clob.MatchResult, blockHeight int64) (T
 		e.positions.ApplyTrade(buyerAccountId, sellerAccountId, r.MarketId, r.Quantity)
 		e.bus.PublishPositionUpdated(buyerAccountId, r.MarketId, 0, blockHeight) // net computed by tracker
 		e.bus.PublishPositionUpdated(sellerAccountId, r.MarketId, 0, blockHeight)
+	}
+
+	// 5. AML alert if notional breaches threshold.
+	if e.amlLimit > 0 && quoteAmount > e.amlLimit {
+		e.bus.PublishAMLAlert(trade.TradeId, r.MarketId, quoteAmount, e.amlLimit, blockHeight)
 	}
 
 	e.bus.PublishTradeExecuted(trade, blockHeight)

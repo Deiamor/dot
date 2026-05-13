@@ -21,6 +21,8 @@ const (
 	EventWithdrawal            EventType = "WITHDRAWAL"
 	EventInsuranceFundDeposit  EventType = "INSURANCE_FUND_DEPOSIT"
 	EventPositionUpdated       EventType = "POSITION_UPDATED"
+	EventKYCStatusUpdated      EventType = "KYC_STATUS_UPDATED"
+	EventAMLAlert              EventType = "AML_ALERT"
 
 	EventAll EventType = "*"
 )
@@ -139,4 +141,16 @@ type PositionUpdatedPayload struct {
 	AccountId   string
 	MarketId    string
 	NetQuantity int64
+}
+
+type KYCStatusUpdatedPayload struct {
+	AccountId string
+	Status    string
+}
+
+type AMLAlertPayload struct {
+	TradeId   string
+	MarketId  string
+	Notional  int64
+	Threshold int64
 }

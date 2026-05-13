@@ -41,6 +41,12 @@ type WithdrawPayload struct {
 	Signature       string // signed by WithdrawalPublicKey over TxHash
 }
 
+// KYCApprovePayload is submitted by a privileged admin to approve or revoke an account's KYC.
+type KYCApprovePayload struct {
+	AccountId string
+	Status    string // "APPROVED" | "REVOKED" | "EXEMPT"
+}
+
 type BatchBuilder struct {
 	blockHeight int64
 	txs         []Transaction
@@ -110,6 +116,17 @@ func (b *BatchBuilder) AddWithdraw(accountId, assetId string, amount int64, seq 
 			AccountSequence: seq,
 			Signature:       sig,
 		},
+	})
+	return b
+}
+
+// AddKYCApprove adds an admin KYC status update transaction to the batch.
+// status must be one of: "APPROVED", "REVOKED", "EXEMPT".
+func (b *BatchBuilder) AddKYCApprove(accountId, status string) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:    TxKYCApprove,
+		AccountId: accountId,
+		Payload:   KYCApprovePayload{AccountId: accountId, Status: status},
 	})
 	return b
 }

@@ -138,6 +138,10 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 		payload := tx.Payload.(fairbatch.WithdrawPayload)
 		return p.processWithdraw(payload, tx.TxHash, blockHeight)
 
+	case fairbatch.TxKYCApprove:
+		payload := tx.Payload.(fairbatch.KYCApprovePayload)
+		return p.AccountKeeper.UpdateKYCStatus(payload.AccountId, account.KYCStatus(payload.Status), blockHeight)
+
 	default:
 		return fmt.Errorf("unknown transaction type: %d", tx.TxType)
 	}

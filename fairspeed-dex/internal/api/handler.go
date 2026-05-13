@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
+	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 )
 
 // handleGetAccount handles GET /accounts/{accountId}
@@ -27,6 +28,7 @@ func (s *Server) handleGetAccount(w http.ResponseWriter, r *http.Request) {
 		AccountId:       acc.AccountId,
 		OwnerAddress:    acc.OwnerAddress,
 		Status:          string(acc.Status),
+		KYCStatus:       string(acc.KYCStatus),
 		AccountSequence: acc.AccountSequence,
 	})
 }
@@ -238,4 +240,34 @@ func pathSuffix(path, prefix string) string {
 		return path[len(prefix):]
 	}
 	return ""
+}
+
+// handleComplianceReport handles GET /reports/trades
+// Returns all trade executions in compliance-grade format (MiCA/FATF).
+func (s *Server) handleComplianceReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	trades := s.node.AllTrades()
+	records := compliance.ReportTrades(trades)
+	writeJSON(w, http.StatusOK, records)
+}
+
+// handleKYCStatus handles GET /reports/kyc/{accountId}
+func (s *Server) handleKYCStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	accountId := pathSuffix(r.URL.Path, "/reports/kyc/")
+	if accountId == "" {
+		writeError(w, http.StatusBadRequest, "accountId required")
+		return
+	}
+	status := s.node.GetKYCStatus(accountId)
+	writeJSON(w, http.StatusOK, KYCStatusResponse{
+		AccountId: accountId,
+		KYCStatus: string(status),
+	})
 }
