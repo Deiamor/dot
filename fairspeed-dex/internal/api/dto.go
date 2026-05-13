@@ -136,6 +136,30 @@ type SessionResponse struct {
 	SessionPublicKey string   `json:"session_public_key"`
 }
 
+// PointsResponse is returned by GET /points/{accountId}.
+type PointsResponse struct {
+	AccountId      string `json:"account_id"`
+	TotalPoints    int64  `json:"total_points"`
+	TradePoints    int64  `json:"trade_points"`
+	ReferralPoints int64  `json:"referral_points"`
+	IsEarlyBird    bool   `json:"is_early_bird"`
+	FAIREstimate   int64  `json:"fair_estimate"`
+}
+
+// LeaderboardEntry is one row in GET /points/leaderboard.
+type LeaderboardEntry struct {
+	Rank         int    `json:"rank"`
+	AccountId    string `json:"account_id"`
+	TotalPoints  int64  `json:"total_points"`
+	FAIREstimate int64  `json:"fair_estimate"`
+}
+
+// ReferralRequest is the JSON body for POST /referral.
+type ReferralRequest struct {
+	AccountId  string `json:"account_id"`
+	ReferrerId string `json:"referrer_id"`
+}
+
 func tradeToResponse(t settlement.TradeExecution) TradeResponse {
 	return TradeResponse{
 		TradeId:        t.TradeId,

@@ -3,12 +3,14 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
 	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
 	"github.com/byunghee1994/fairspeed-dex/internal/state"
+	"github.com/byunghee1994/fairspeed-dex/internal/token"
 )
 
 // handleGetAccount handles GET /accounts/{accountId}
@@ -525,4 +527,93 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		AllowedMarkets:   mktList,
 		SessionPublicKey: sess.SessionPublicKey,
 	})
+}
+
+// handleGetPoints handles GET /points/{accountId}
+func (s *Server) handleGetPoints(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	accountId := pathSuffix(r.URL.Path, "/points/")
+	if accountId == "" {
+		writeError(w, http.StatusBadRequest, "accountId required")
+		return
+	}
+
+	ap := s.node.GetAccountPoints(accountId)
+	var totalPoints, tradePoints, referralPoints int64
+	var isEarlyBird bool
+	if ap != nil {
+		totalPoints = ap.TotalPoints
+		tradePoints = ap.TradePoints
+		referralPoints = ap.ReferralPoints
+		isEarlyBird = ap.IsEarlyBird
+	}
+	fairEst := s.node.TGEAllocation(accountId, token.CommunityAlloc)
+	writeJSON(w, http.StatusOK, PointsResponse{
+		AccountId:      accountId,
+		TotalPoints:    totalPoints,
+		TradePoints:    tradePoints,
+		ReferralPoints: referralPoints,
+		IsEarlyBird:    isEarlyBird,
+		FAIREstimate:   fairEst,
+	})
+}
+
+// handleGetLeaderboard handles GET /points/leaderboard
+func (s *Server) handleGetLeaderboard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	top := s.node.PointsLeaderboard(100)
+	resp := make([]LeaderboardEntry, len(top))
+	for i, ap := range top {
+		fairEst := s.node.TGEAllocation(ap.AccountId, token.CommunityAlloc)
+		resp[i] = LeaderboardEntry{
+			Rank:         i + 1,
+			AccountId:    ap.AccountId,
+			TotalPoints:  ap.TotalPoints,
+			FAIREstimate: fairEst,
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleReferral handles POST /referral
+func (s *Server) handleReferral(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req ReferralRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if req.AccountId == "" {
+		writeError(w, http.StatusBadRequest, "account_id required")
+		return
+	}
+	if req.ReferrerId == "" {
+		writeError(w, http.StatusBadRequest, "referrer_id required")
+		return
+	}
+	s.node.SetReferrer(req.AccountId, req.ReferrerId)
+	writeJSON(w, http.StatusOK, map[string]string{
+		"account_id":  req.AccountId,
+		"referrer_id": req.ReferrerId,
+		"status":      "ok",
+	})
+}
+
+// handlePoints routes /points/ and /points/leaderboard
+func (s *Server) handlePoints(w http.ResponseWriter, r *http.Request) {
+	suffix := pathSuffix(r.URL.Path, "/points/")
+	if strings.EqualFold(suffix, "leaderboard") {
+		s.handleGetLeaderboard(w, r)
+		return
+	}
+	s.handleGetPoints(w, r)
 }

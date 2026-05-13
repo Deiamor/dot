@@ -15,6 +15,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/funding"
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
 	"github.com/byunghee1994/fairspeed-dex/internal/oracle"
+	"github.com/byunghee1994/fairspeed-dex/internal/points"
 	"github.com/byunghee1994/fairspeed-dex/internal/validator"
 )
 
@@ -54,6 +55,8 @@ type AppState struct {
 	LastFundingBlock     map[string]int64                                  // marketId → last settlement height
 	IndexPrices          map[string]int64                                  // marketId → off-chain index price (0 = use markPrice)
 	ConditionalOrders    map[string]*clob.ConditionalOrder                 // orderId → conditional order
+	PointsData          map[string]*points.AccountPoints                  // accountId → points
+	PointsOrder         []string                                          // registration order for early-bird
 	BlockHeight         int64
 }
 
@@ -79,6 +82,8 @@ func NewAppState() *AppState {
 		LastFundingBlock:  make(map[string]int64),
 		IndexPrices:       make(map[string]int64),
 		ConditionalOrders: make(map[string]*clob.ConditionalOrder),
+		PointsData:        make(map[string]*points.AccountPoints),
+		PointsOrder:       []string{},
 	}
 }
 
@@ -1064,4 +1069,61 @@ func (s *AppState) LatestSessionForAccount(accountId string) string {
 		}
 	}
 	return ""
+}
+
+// ---- points.PointsStore -----------------------------------------------------
+
+// GetAccountPoints returns the AccountPoints for accountId, or nil if not found.
+func (s *AppState) GetAccountPoints(accountId string) *points.AccountPoints {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	ap, ok := s.PointsData[accountId]
+	if !ok {
+		return nil
+	}
+	cp := *ap
+	return &cp
+}
+
+// SetAccountPoints stores or updates the AccountPoints for an account.
+func (s *AppState) SetAccountPoints(p *points.AccountPoints) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	cp := *p
+	s.PointsData[p.AccountId] = &cp
+}
+
+// AllAccountPoints returns a snapshot of all AccountPoints records.
+func (s *AppState) AllAccountPoints() []*points.AccountPoints {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	out := make([]*points.AccountPoints, 0, len(s.PointsData))
+	for _, ap := range s.PointsData {
+		cp := *ap
+		out = append(out, &cp)
+	}
+	return out
+}
+
+// GetRegistrationOrder returns accounts in their registration order (for early-bird tracking).
+func (s *AppState) GetRegistrationOrder() []string {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	cp := make([]string, len(s.PointsOrder))
+	copy(cp, s.PointsOrder)
+	return cp
+}
+
+// AppendRegistrationOrder appends an accountId to the registration order list.
+func (s *AppState) AppendRegistrationOrder(accountId string) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	s.PointsOrder = append(s.PointsOrder, accountId)
+}
+
+// TotalAccounts returns the total number of registered accounts (for early-bird cutoff).
+func (s *AppState) TotalAccounts() int64 {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	return int64(len(s.PointsOrder))
 }

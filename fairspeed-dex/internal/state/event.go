@@ -54,6 +54,10 @@ const (
 	EventConditionalOrderExpired    EventType = "CONDITIONAL_ORDER_EXPIRED"
 	EventConditionalOrderCancelled  EventType = "CONDITIONAL_ORDER_CANCELLED"
 
+	EventPointsAwarded    EventType = "POINTS_AWARDED"
+	EventReferralRecorded EventType = "REFERRAL_RECORDED"
+	EventTGEAllocated     EventType = "TGE_ALLOCATED"
+
 	EventAll EventType = "*"
 )
 
@@ -379,5 +383,20 @@ type FundingSettledPayload struct {
 	TotalLongsPaid      int64
 	TotalShortsReceived int64
 	BlockHeight         int64
+}
+
+// PointsAwardedPayload is emitted when points are awarded to an account.
+type PointsAwardedPayload struct {
+	AccountId   string
+	Points      int64
+	TotalPoints int64
+	Reason      string // "TRADE" | "REFERRAL" | "BONUS"
+}
+
+// TGEAllocatedPayload is emitted when a TGE allocation is computed for an account.
+type TGEAllocatedPayload struct {
+	AccountId  string
+	FAIRAmount int64
+	Points     int64
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/funding"
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
 	"github.com/byunghee1994/fairspeed-dex/internal/oracle"
+	"github.com/byunghee1994/fairspeed-dex/internal/points"
 	"github.com/byunghee1994/fairspeed-dex/internal/risk"
 	"github.com/byunghee1994/fairspeed-dex/internal/settlement"
 	"github.com/byunghee1994/fairspeed-dex/internal/state"
@@ -40,6 +41,7 @@ type LocalBlockProcessor struct {
 	// DistributionAssets lists the asset IDs distributed from the treasury to validators.
 	// Defaults to ["USDC"] when empty.
 	DistributionAssets []string
+	PointsKeeper       *points.PointsKeeper
 }
 
 func (p *LocalBlockProcessor) ProcessBlock(block LocalBlock) (BlockResult, error) {
@@ -142,13 +144,16 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 	switch tx.TxType {
 	case fairbatch.TxCreateAccount:
 		payload := tx.Payload.(fairbatch.CreateAccountPayload)
-		_, err := p.AccountKeeper.CreateAccount(
+		acc, err := p.AccountKeeper.CreateAccount(
 			payload.OwnerAddress,
 			payload.RootPublicKey,
 			payload.WithdrawalPublicKey,
 			blockHeight,
 			tx.TxHash,
 		)
+		if err == nil && p.PointsKeeper != nil {
+			p.PointsKeeper.RegisterAccount(acc.AccountId, "")
+		}
 		return err
 
 	case fairbatch.TxCreateSession:
@@ -379,6 +384,12 @@ func (p *LocalBlockProcessor) processOrder(o clob.Order, txHash string, blockHei
 		}
 		for _, t := range trades {
 			p.SettlementKeeper.RecordTrade(t)
+			if p.PointsKeeper != nil {
+				notional := t.Price * t.Quantity
+				isPerp := p.AppState.IsPerp(t.MarketId)
+				p.PointsKeeper.RecordTrade(t.MakerAccountId, notional, isPerp, true)
+				p.PointsKeeper.RecordTrade(t.TakerAccountId, notional, isPerp, false)
+			}
 		}
 	}
 

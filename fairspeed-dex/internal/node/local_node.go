@@ -12,6 +12,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/fee"
 	"github.com/byunghee1994/fairspeed-dex/internal/funding"
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
+	"github.com/byunghee1994/fairspeed-dex/internal/points"
 	"github.com/byunghee1994/fairspeed-dex/internal/risk"
 	"github.com/byunghee1994/fairspeed-dex/internal/settlement"
 	"github.com/byunghee1994/fairspeed-dex/internal/state"
@@ -30,6 +31,7 @@ type LocalNode struct {
 	governanceKeeper  *governance.GovernanceKeeper
 	feeCalc           *fee.FeeCalculator
 	riskChecker       *risk.RiskChecker
+	PointsKeeper      *points.PointsKeeper
 }
 
 func NewLocalNode() *LocalNode {
@@ -64,6 +66,8 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 	validatorKeeper := validator.NewValidatorKeeper(appState, adapter)
 	governanceKeeper := governance.NewGovernanceKeeper(appState, adapter)
 
+	pointsKeeper := points.NewPointsKeeper(appState) // AppState implements points.PointsStore
+
 	n := &LocalNode{
 		bus:              bus,
 		AppState:         appState,
@@ -74,6 +78,7 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 		governanceKeeper: governanceKeeper,
 		feeCalc:          feeCalc,
 		riskChecker:      riskChecker,
+		PointsKeeper:     pointsKeeper,
 	}
 
 	riskChecker.SetPerpConfigStore(appState) // AppState implements risk.PerpConfigStore
@@ -95,6 +100,7 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 		EventBus:           bus,
 		AppState:           appState,
 		DistributionAssets: []string{"USDC"},
+		PointsKeeper:       pointsKeeper,
 	}
 	n.processor = processor
 
@@ -431,4 +437,37 @@ func (n *LocalNode) GetConditionalOrder(orderId string) (*clob.ConditionalOrder,
 // AllConditionalOrders returns all open conditional orders for a market.
 func (n *LocalNode) AllConditionalOrders(marketId string) []clob.ConditionalOrder {
 	return n.AppState.AllConditionalOrdersForMarket(marketId)
+}
+
+// GetPointsKeeper returns the PointsKeeper for this node.
+func (n *LocalNode) GetPointsKeeper() *points.PointsKeeper {
+	return n.PointsKeeper
+}
+
+// GetAccountPoints returns the points record for accountId.
+func (n *LocalNode) GetAccountPoints(accountId string) *points.AccountPoints {
+	return n.AppState.GetAccountPoints(accountId)
+}
+
+// SetReferrer sets the referrer for accountId (idempotent, no-op if already set).
+func (n *LocalNode) SetReferrer(accountId, referrerId string) {
+	if n.PointsKeeper != nil {
+		n.PointsKeeper.SetReferrer(accountId, referrerId)
+	}
+}
+
+// TGEAllocation computes the FAIR token allocation for accountId.
+func (n *LocalNode) TGEAllocation(accountId string, totalFAIR int64) int64 {
+	if n.PointsKeeper == nil {
+		return 0
+	}
+	return n.PointsKeeper.TGEAllocation(accountId, totalFAIR)
+}
+
+// PointsLeaderboard returns top N accounts by total points.
+func (n *LocalNode) PointsLeaderboard(topN int) []*points.AccountPoints {
+	if n.PointsKeeper == nil {
+		return nil
+	}
+	return n.PointsKeeper.Leaderboard(topN)
 }
