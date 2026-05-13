@@ -130,8 +130,29 @@ func (r *RiskChecker) CheckOrder(o *clob.Order, sess *account.TradingSession, bl
 	if err := r.checkPerpLeverage(o); err != nil {
 		return err
 	}
+	if err := r.checkReduceOnly(o); err != nil {
+		return err
+	}
 	if err := r.checkPerpKYC(o); err != nil {
 		return err
+	}
+	return nil
+}
+
+// checkReduceOnly rejects ReduceOnly orders that would increase the position
+// rather than reduce it.
+// - ReduceOnly SELL is valid only when the account holds a LONG (NetQuantity > 0).
+// - ReduceOnly BUY  is valid only when the account holds a SHORT (NetQuantity < 0).
+func (r *RiskChecker) checkReduceOnly(o *clob.Order) error {
+	if !o.ReduceOnly || r.tracker == nil {
+		return nil
+	}
+	pos := r.tracker.Get(o.AccountId, o.MarketId)
+	if o.Side == clob.OrderSideSell && pos.NetQuantity <= 0 {
+		return fmt.Errorf("reduce-only SELL rejected: no long position to reduce (netQty=%d)", pos.NetQuantity)
+	}
+	if o.Side == clob.OrderSideBuy && pos.NetQuantity >= 0 {
+		return fmt.Errorf("reduce-only BUY rejected: no short position to reduce (netQty=%d)", pos.NetQuantity)
 	}
 	return nil
 }
