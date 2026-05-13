@@ -2,6 +2,7 @@ package node
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
@@ -20,6 +21,7 @@ import (
 )
 
 type LocalNode struct {
+	mu                sync.Mutex // serialises SubmitBatch; HTTP handlers may call concurrently
 	processor         *LocalBlockProcessor
 	chain             []LocalBlock
 	bus               *state.EventBus
@@ -108,6 +110,9 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 }
 
 func (n *LocalNode) SubmitBatch(batch fairbatch.FairBatch) (BlockResult, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
 	nextHeight := n.AppState.CurrentHeight() + 1
 
 	var parentHash string
