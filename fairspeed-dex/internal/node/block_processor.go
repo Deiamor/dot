@@ -32,6 +32,7 @@ type LocalBlockProcessor struct {
 	GovernanceKeeper   *governance.GovernanceKeeper
 	GovernanceExecutor governance.ParameterExecutor
 	SanctionsStore     compliance.SanctionsStore
+	PositionTracker    *risk.PositionTracker
 	EventBus           *state.EventBus
 	AppState           *state.AppState
 	// DistributionAssets lists the asset IDs distributed from the treasury to validators.
@@ -341,7 +342,7 @@ func (p *LocalBlockProcessor) processOrder(o clob.Order, txHash string, blockHei
 		return nil
 	}
 
-	if err := p.OrderBookKeeper.ReserveForOrder(o); err != nil {
+	if err := p.reserveCollateral(&o, blockHeight); err != nil {
 		p.emitOrderRejected(o, err.Error(), blockHeight)
 		return nil
 	}
@@ -366,9 +367,9 @@ func (p *LocalBlockProcessor) processOrder(o clob.Order, txHash string, blockHei
 		p.emitOrderSubmitted(o, blockHeight)
 	} else {
 		if o.RemainingQuantity > 0 && o.Status != clob.OrderStatusRejected {
-			_ = p.OrderBookKeeper.ReleaseForOrder(o, o.RemainingQuantity)
+			p.releaseCollateral(o, o.RemainingQuantity)
 		} else if o.Status == clob.OrderStatusRejected {
-			_ = p.OrderBookKeeper.ReleaseForOrder(o, o.Quantity)
+			p.releaseCollateral(o, o.Quantity)
 		}
 		p.AppState.SetOrder(&o)
 		if o.Status == clob.OrderStatusRejected {
@@ -379,6 +380,76 @@ func (p *LocalBlockProcessor) processOrder(o clob.Order, txHash string, blockHei
 	}
 
 	return nil
+}
+
+// reserveCollateral reserves collateral before matching.
+// SPOT: reserves full notional (BUY) or base asset qty (SELL).
+// PERP: reserves InitialMargin in quote asset for both sides.
+// ReduceOnly PERP orders require no collateral.
+func (p *LocalBlockProcessor) reserveCollateral(o *clob.Order, blockHeight int64) error {
+	cfg, isPerp := p.AppState.GetPerpConfig(o.MarketId)
+	if !isPerp {
+		return p.OrderBookKeeper.ReserveForOrder(*o)
+	}
+	if o.ReduceOnly {
+		return nil
+	}
+	notional := o.Price * o.RemainingQuantity
+	leverage := o.Leverage
+	if leverage <= 0 {
+		leverage = 10_000 / cfg.InitialMarginBps
+		if leverage == 0 {
+			leverage = 1
+		}
+	}
+	marginAmount := notional / leverage
+	if marginAmount == 0 {
+		marginAmount = 1
+	}
+	quoteAsset := cfg.QuoteAsset
+	if quoteAsset == "" {
+		quoteAsset = clob.SplitMarket(o.MarketId)[1]
+	}
+	if err := p.AssetKeeper.Reserve(o.AccountId, quoteAsset, marginAmount); err != nil {
+		return err
+	}
+	if p.PositionTracker != nil {
+		p.PositionTracker.AdjustMargin(o.AccountId, o.MarketId, marginAmount)
+	}
+	return nil
+}
+
+// releaseCollateral releases reserved collateral for unfilled quantity.
+func (p *LocalBlockProcessor) releaseCollateral(o clob.Order, releasedQty int64) {
+	cfg, isPerp := p.AppState.GetPerpConfig(o.MarketId)
+	if !isPerp {
+		_ = p.OrderBookKeeper.ReleaseForOrder(o, releasedQty)
+		return
+	}
+	if o.ReduceOnly || releasedQty <= 0 {
+		return
+	}
+	leverage := o.Leverage
+	if leverage <= 0 {
+		leverage = 10_000 / cfg.InitialMarginBps
+		if leverage == 0 {
+			leverage = 1
+		}
+	}
+	// Release proportional to released quantity
+	totalMargin := o.Price * o.Quantity / leverage
+	releaseMargin := totalMargin * releasedQty / o.Quantity
+	if releaseMargin <= 0 {
+		return
+	}
+	quoteAsset := cfg.QuoteAsset
+	if quoteAsset == "" {
+		quoteAsset = clob.SplitMarket(o.MarketId)[1]
+	}
+	_ = p.AssetKeeper.Release(o.AccountId, quoteAsset, releaseMargin)
+	if p.PositionTracker != nil {
+		p.PositionTracker.AdjustMargin(o.AccountId, o.MarketId, -releaseMargin)
+	}
 }
 
 func (p *LocalBlockProcessor) emitOrderSubmitted(o clob.Order, blockHeight int64) {
@@ -554,6 +625,8 @@ func (p *LocalBlockProcessor) processRegisterPerpMarket(payload fairbatch.Regist
 		return fmt.Errorf("perp market %s: max leverage must be > 0", payload.MarketId)
 	}
 	cfg := clob.PerpConfig{
+		BaseAsset:             payload.BaseAsset,
+		QuoteAsset:            payload.QuoteAsset,
 		InitialMarginBps:      payload.InitialMarginBps,
 		MaintenanceMarginBps:  payload.MaintenanceMarginBps,
 		MaxLeverage:           payload.MaxLeverage,

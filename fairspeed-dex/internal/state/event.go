@@ -42,7 +42,8 @@ const (
 	EventBridgeAttested  EventType = "BRIDGE_ATTESTED"
 	EventBridgeCompleted EventType = "BRIDGE_COMPLETED"
 
-	EventPerpMarketRegistered EventType = "PERP_MARKET_REGISTERED"
+	EventPerpMarketRegistered   EventType = "PERP_MARKET_REGISTERED"
+	EventPerpPositionUpdated    EventType = "PERP_POSITION_UPDATED"
 
 	EventAll EventType = "*"
 )
@@ -256,6 +257,16 @@ type FeeDistributedPayload struct {
 	AssetId     string
 	Amount      int64
 	BlockHeight int64
+}
+
+// PerpPositionUpdatedPayload is emitted when a PERP position changes.
+type PerpPositionUpdatedPayload struct {
+	AccountId       string
+	MarketId        string
+	NetQuantity     int64
+	AvgEntryPrice   int64
+	AllocatedMargin int64
+	BlockHeight     int64
 }
 
 // PerpMarketRegisteredPayload is emitted when a perpetual market is registered.

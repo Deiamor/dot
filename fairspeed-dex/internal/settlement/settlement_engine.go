@@ -14,6 +14,9 @@ type SettlementStore interface {
 	SetBalance(b *asset.Balance)
 	Reserve(accountId, assetId string, amount int64) error
 	Release(accountId, assetId string, amount int64) error
+	// IsPerp returns true when marketId is a perpetual futures market.
+	// Settlement skips asset transfers for PERP markets (positions only).
+	IsPerp(marketId string) bool
 }
 
 type SettlementEventPublisher interface {
@@ -35,6 +38,7 @@ type InsuranceFundDepositor interface {
 // Implemented by risk.PositionTracker; nil means disabled.
 type PositionUpdater interface {
 	ApplyTrade(buyerAccountId, sellerAccountId, marketId string, qty int64)
+	ApplyTradeWithPrice(buyerAccountId, sellerAccountId, marketId string, qty, price int64)
 }
 
 type SettlementEngine struct {
@@ -82,6 +86,11 @@ func (e *SettlementEngine) Settle(results []clob.MatchResult, blockHeight int64)
 }
 
 func (e *SettlementEngine) settleTrade(r clob.MatchResult, blockHeight int64) (TradeExecution, error) {
+	// PERP markets: no base/quote asset transfer — only position tracking.
+	if e.store.IsPerp(r.MarketId) {
+		return e.settlePerpTrade(r, blockHeight)
+	}
+
 	baseAsset, quoteAsset, err := parseMarket(r.MarketId)
 	if err != nil {
 		return TradeExecution{}, err
@@ -125,10 +134,10 @@ func (e *SettlementEngine) settleTrade(r clob.MatchResult, blockHeight int64) (T
 		}
 	}
 
-	// 4. Update position tracker.
+	// 4. Update position tracker (pass fill price to track AvgEntryPrice for PERP).
 	if e.positions != nil {
-		e.positions.ApplyTrade(buyerAccountId, sellerAccountId, r.MarketId, r.Quantity)
-		e.bus.PublishPositionUpdated(buyerAccountId, r.MarketId, 0, blockHeight) // net computed by tracker
+		e.positions.ApplyTradeWithPrice(buyerAccountId, sellerAccountId, r.MarketId, r.Quantity, r.Price)
+		e.bus.PublishPositionUpdated(buyerAccountId, r.MarketId, 0, blockHeight)
 		e.bus.PublishPositionUpdated(sellerAccountId, r.MarketId, 0, blockHeight)
 	}
 
@@ -261,6 +270,40 @@ func (e *SettlementEngine) chargeFeeFromAvailable(accountId, assetId string, fee
 	e.bus.PublishFeeCharged(accountId, tradeId, assetId, feeAmount, feeType, blockHeight)
 	e.bus.PublishBalanceUpdated(accountId, assetId, updated.Available, updated.Reserved, blockHeight)
 	return nil
+}
+
+// settlePerpTrade handles perpetual futures settlement: no base/quote asset transfer,
+// only position tracking and fee collection from available margin.
+func (e *SettlementEngine) settlePerpTrade(r clob.MatchResult, blockHeight int64) (TradeExecution, error) {
+	makerFee, takerFee := e.feeCalc.CalcFees(r.Price, r.Quantity)
+	trade := NewTradeExecution(r, makerFee, takerFee)
+
+	// Determine long (buyer) and short (seller) from taker side.
+	var buyerAccountId, sellerAccountId string
+	if r.TakerSide == clob.OrderSideBuy {
+		buyerAccountId = r.TakerAccountId
+		sellerAccountId = r.MakerAccountId
+	} else {
+		buyerAccountId = r.MakerAccountId
+		sellerAccountId = r.TakerAccountId
+	}
+
+	// Update positions (no base/quote asset transfer for PERP markets).
+	if e.positions != nil {
+		e.positions.ApplyTradeWithPrice(buyerAccountId, sellerAccountId, r.MarketId, r.Quantity, r.Price)
+		e.bus.PublishPositionUpdated(buyerAccountId, r.MarketId, 0, blockHeight)
+		e.bus.PublishPositionUpdated(sellerAccountId, r.MarketId, 0, blockHeight)
+	}
+
+	if e.amlLimit > 0 {
+		quoteAmount := r.Price * r.Quantity
+		if quoteAmount > e.amlLimit {
+			e.bus.PublishAMLAlert(trade.TradeId, r.MarketId, quoteAmount, e.amlLimit, blockHeight)
+		}
+	}
+
+	e.bus.PublishTradeExecuted(trade, blockHeight)
+	return trade, nil
 }
 
 func parseMarket(marketId string) (baseAsset, quoteAsset string, err error) {

@@ -9,6 +9,7 @@ type MatchResult struct {
 	Price          int64
 	Quantity       int64
 	BlockHeight    int64
+	TakerSide      OrderSide // BUY if taker is the buyer, SELL if taker is the seller
 }
 
 type MatchingEngine interface {
@@ -124,6 +125,7 @@ func (m PricePriorityMatcher) drainLevel(incoming *Order, level *PriceLevel, ob 
 			Price:          maker.Price,
 			Quantity:       tradeQty,
 			BlockHeight:    blockHeight,
+			TakerSide:      incoming.Side,
 		})
 	}
 	return results

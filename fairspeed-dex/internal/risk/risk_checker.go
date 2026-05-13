@@ -30,6 +30,11 @@ type RateLimitStore interface {
 	IncrementOrderCount(accountId string) int64
 }
 
+// PerpConfigStore lets the risk checker access perpetual market parameters.
+type PerpConfigStore interface {
+	GetPerpConfig(marketId string) (*clob.PerpConfig, bool)
+}
+
 type RiskChecker struct {
 	policy           RiskPolicy
 	tracker          *PositionTracker
@@ -38,6 +43,7 @@ type RiskChecker struct {
 	kycTierChecker   *compliance.KYCTierChecker // nil when tier limits are not configured
 	accountTierStore AccountTierStore           // nil when kycTierChecker is nil
 	rateLimitStore   RateLimitStore             // nil when MaxOrdersPerBlock == 0
+	perpStore        PerpConfigStore            // nil when perp markets not configured
 }
 
 func NewRiskChecker(policy RiskPolicy, tracker *PositionTracker) *RiskChecker {
@@ -65,6 +71,11 @@ func (r *RiskChecker) SetKYCTierChecker(checker *compliance.KYCTierChecker, stor
 // SetRateLimitStore wires the per-block order counter store.
 func (r *RiskChecker) SetRateLimitStore(store RateLimitStore) {
 	r.rateLimitStore = store
+}
+
+// SetPerpConfigStore wires the perpetual market config store.
+func (r *RiskChecker) SetPerpConfigStore(store PerpConfigStore) {
+	r.perpStore = store
 }
 
 // SetPolicy replaces the active risk policy. Called by governance on proposal execution.
@@ -115,6 +126,26 @@ func (r *RiskChecker) CheckOrder(o *clob.Order, sess *account.TradingSession, bl
 	}
 	if err := r.checkPositionLimit(o); err != nil {
 		return err
+	}
+	if err := r.checkPerpLeverage(o); err != nil {
+		return err
+	}
+	return nil
+}
+
+// checkPerpLeverage rejects orders on PERP markets where the requested leverage
+// exceeds the market's MaxLeverage. Skipped for SPOT markets or when o.Leverage==0.
+func (r *RiskChecker) checkPerpLeverage(o *clob.Order) error {
+	if r.perpStore == nil || o.Leverage == 0 {
+		return nil
+	}
+	cfg, ok := r.perpStore.GetPerpConfig(o.MarketId)
+	if !ok {
+		return nil // SPOT market — no leverage check
+	}
+	if o.Leverage > cfg.MaxLeverage {
+		return fmt.Errorf("leverage %d exceeds max leverage %d for market %s",
+			o.Leverage, cfg.MaxLeverage, o.MarketId)
 	}
 	return nil
 }

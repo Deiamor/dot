@@ -55,6 +55,8 @@ type Order struct {
 	CreatedBlockHeight  int64
 	Signature           string
 	Status              OrderStatus
+	ReduceOnly          bool  // PERP only: position must decrease, no new margin reserved
+	Leverage            int64 // PERP only: explicit leverage (0 = use market default)
 }
 
 func NewLimitOrder(accountId, sessionId, marketId string, side OrderSide, price, qty int64, tif TimeInForce, blockHeight int64) Order {

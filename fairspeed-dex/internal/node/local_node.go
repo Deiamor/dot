@@ -75,6 +75,8 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 		riskChecker:      riskChecker,
 	}
 
+	riskChecker.SetPerpConfigStore(appState) // AppState implements risk.PerpConfigStore
+
 	processor := &LocalBlockProcessor{
 		AccountKeeper:      accountKeeper,
 		AssetKeeper:        assetKeeper,
@@ -87,6 +89,7 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 		GovernanceKeeper:   governanceKeeper,
 		GovernanceExecutor: n,
 		SanctionsStore:     appState,
+		PositionTracker:    positionTracker,
 		EventBus:           bus,
 		AppState:           appState,
 		DistributionAssets: []string{"USDC"},
@@ -357,6 +360,11 @@ func (n *LocalNode) GetInsuranceFundBalance(assetId string) int64 {
 
 // GetPosition returns the net position for an account in a market.
 func (n *LocalNode) GetPosition(accountId, marketId string) risk.NetPosition {
+	return n.positionTracker.Get(accountId, marketId)
+}
+
+// GetPerpPosition returns the perpetual position for accountId in marketId.
+func (n *LocalNode) GetPerpPosition(accountId, marketId string) risk.NetPosition {
 	return n.positionTracker.Get(accountId, marketId)
 }
 

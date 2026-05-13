@@ -162,6 +162,12 @@ func reserveAssetForOrder(o Order) (assetId string, amount int64) {
 }
 
 func splitMarket(marketId string) [2]string {
+	return SplitMarket(marketId)
+}
+
+// SplitMarket splits "BASE-QUOTE" into [2]string{"BASE", "QUOTE"}.
+// Returns [marketId, ""] for markets without a dash.
+func SplitMarket(marketId string) [2]string {
 	for i := 0; i < len(marketId); i++ {
 		if marketId[i] == '-' {
 			return [2]string{marketId[:i], marketId[i+1:]}
