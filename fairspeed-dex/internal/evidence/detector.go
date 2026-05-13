@@ -1,10 +1,18 @@
 package evidence
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
 )
+
+// Slasher is the minimum interface the detectors need to auto-slash validators.
+// validator.ValidatorKeeper satisfies this interface.
+type Slasher interface {
+	SlashDoubleSign(validatorId string, blockHeight int64) (int64, error)
+	SlashFrontRun(validatorId string, blockHeight int64) (int64, error)
+}
 
 // BatchHashMismatch is the payload for EvidenceFrontRun when a proposer
 // submits transactions in a non-canonical order.
@@ -19,14 +27,23 @@ type BatchHashMismatch struct {
 
 // FairBatchDetector watches incoming blocks and checks that each block's
 // transaction ordering matches the canonical FairBatch sort. Any deviation
-// is recorded as evidence of Byzantine proposer behaviour.
+// is recorded as evidence of Byzantine proposer behaviour and, if a Slasher
+// is configured, the proposer is slashed automatically.
 type FairBatchDetector struct {
 	mu       sync.Mutex
 	evidence []Evidence
+	slasher  Slasher
 }
 
 func NewFairBatchDetector() *FairBatchDetector {
 	return &FairBatchDetector{}
+}
+
+// SetSlasher wires the detector to auto-slash on detected front-running.
+func (d *FairBatchDetector) SetSlasher(s Slasher) {
+	d.mu.Lock()
+	d.slasher = s
+	d.mu.Unlock()
 }
 
 // CheckBlock inspects the proposed batch from `proposerId` at `height`.
@@ -50,10 +67,17 @@ func (d *FairBatchDetector) CheckBlock(proposerId string, height int64, batch fa
 		expectedOrder[i] = tx.TxHash
 	}
 
+	var slashDesc string
+	if d.slasher != nil {
+		if slashed, err := d.slasher.SlashFrontRun(proposerId, height); err == nil {
+			slashDesc = fmt.Sprintf(" (auto-slashed %d)", slashed)
+		}
+	}
+
 	ev := NewEvidence(
 		EvidenceFrontRun,
 		height,
-		"proposer submitted non-canonical tx ordering",
+		"proposer submitted non-canonical tx ordering"+slashDesc,
 		BatchHashMismatch{
 			ProposerId:        proposerId,
 			Height:            height,
@@ -88,15 +112,24 @@ type DoubleSignPayload struct {
 }
 
 // DoubleSignDetector detects when the same proposer broadcasts different
-// batches to different nodes at the same block height.
+// batches to different nodes at the same block height. If a Slasher is
+// configured, the proposer is slashed automatically when evidence is found.
 type DoubleSignDetector struct {
-	mu      sync.Mutex
-	seen    map[string]string   // "proposerId:height" → batchHash first seen
+	mu       sync.Mutex
+	seen     map[string]string // "proposerId:height" → batchHash first seen
 	evidence []Evidence
+	slasher  Slasher
 }
 
 func NewDoubleSignDetector() *DoubleSignDetector {
 	return &DoubleSignDetector{seen: make(map[string]string)}
+}
+
+// SetSlasher wires the detector to auto-slash on detected double-sign.
+func (d *DoubleSignDetector) SetSlasher(s Slasher) {
+	d.mu.Lock()
+	d.slasher = s
+	d.mu.Unlock()
 }
 
 // RecordProposal records a batch from a proposer at a height.
@@ -116,10 +149,17 @@ func (d *DoubleSignDetector) RecordProposal(proposerId string, height int64, bat
 		return nil // same proposal, no conflict
 	}
 
+	var slashDesc string
+	if d.slasher != nil {
+		if slashed, err := d.slasher.SlashDoubleSign(proposerId, height); err == nil {
+			slashDesc = fmt.Sprintf(" (auto-slashed %d)", slashed)
+		}
+	}
+
 	ev := NewEvidence(
 		EvidenceDoubleSign,
 		height,
-		"proposer submitted conflicting batches at same height",
+		"proposer submitted conflicting batches at same height"+slashDesc,
 		DoubleSignPayload{
 			ProposerId: proposerId,
 			Height:     height,

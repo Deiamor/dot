@@ -235,6 +235,16 @@ func (n *LocalNode) SlashValidator(validatorId, reason string) (int64, error) {
 	}
 }
 
+// SlashDoubleSign directly satisfies the evidence.Slasher interface.
+func (n *LocalNode) SlashDoubleSign(validatorId string, blockHeight int64) (int64, error) {
+	return n.validatorKeeper.SlashDoubleSign(validatorId, blockHeight)
+}
+
+// SlashFrontRun directly satisfies the evidence.Slasher interface.
+func (n *LocalNode) SlashFrontRun(validatorId string, blockHeight int64) (int64, error) {
+	return n.validatorKeeper.SlashFrontRun(validatorId, blockHeight)
+}
+
 // TotalValidatorStake returns the sum of all bonded stake.
 func (n *LocalNode) TotalValidatorStake() int64 {
 	return n.validatorKeeper.TotalStake()
