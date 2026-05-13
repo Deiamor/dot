@@ -175,3 +175,45 @@ func (a *busAdapter) PublishValidatorUnbonded(validatorId string, blockHeight in
 		Payload:     state.ValidatorUnbondedPayload{ValidatorId: validatorId},
 	})
 }
+
+// --- governance.EventPublisher ---
+
+func (a *busAdapter) PublishProposalSubmitted(proposalId, proposalType, title string, blockHeight int64) {
+	a.bus.Publish(state.Event{
+		Type:        state.EventProposalSubmitted,
+		BlockHeight: blockHeight,
+		Payload:     state.ProposalSubmittedPayload{ProposalId: proposalId, ProposalType: proposalType, Title: title},
+	})
+}
+
+func (a *busAdapter) PublishVoteCast(proposalId, validatorId, choice string, stake int64, blockHeight int64) {
+	a.bus.Publish(state.Event{
+		Type:        state.EventVoteCast,
+		BlockHeight: blockHeight,
+		Payload:     state.VoteCastPayload{ProposalId: proposalId, ValidatorId: validatorId, Choice: choice, Stake: stake},
+	})
+}
+
+func (a *busAdapter) PublishProposalPassed(proposalId string, blockHeight int64) {
+	a.bus.Publish(state.Event{
+		Type:        state.EventProposalPassed,
+		BlockHeight: blockHeight,
+		Payload:     state.ProposalPassedPayload{ProposalId: proposalId},
+	})
+}
+
+func (a *busAdapter) PublishProposalRejected(proposalId string, blockHeight int64) {
+	a.bus.Publish(state.Event{
+		Type:        state.EventProposalRejected,
+		BlockHeight: blockHeight,
+		Payload:     state.ProposalRejectedPayload{ProposalId: proposalId},
+	})
+}
+
+func (a *busAdapter) PublishProposalExecuted(proposalId string, blockHeight int64) {
+	a.bus.Publish(state.Event{
+		Type:        state.EventProposalExecuted,
+		BlockHeight: blockHeight,
+		Payload:     state.ProposalExecutedPayload{ProposalId: proposalId},
+	})
+}

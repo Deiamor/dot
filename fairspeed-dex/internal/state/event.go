@@ -26,6 +26,11 @@ const (
 	EventValidatorBonded       EventType = "VALIDATOR_BONDED"
 	EventValidatorSlashed      EventType = "VALIDATOR_SLASHED"
 	EventValidatorUnbonded     EventType = "VALIDATOR_UNBONDED"
+	EventProposalSubmitted     EventType = "PROPOSAL_SUBMITTED"
+	EventVoteCast              EventType = "VOTE_CAST"
+	EventProposalPassed        EventType = "PROPOSAL_PASSED"
+	EventProposalRejected      EventType = "PROPOSAL_REJECTED"
+	EventProposalExecuted      EventType = "PROPOSAL_EXECUTED"
 
 	EventAll EventType = "*"
 )
@@ -173,4 +178,29 @@ type ValidatorSlashedPayload struct {
 
 type ValidatorUnbondedPayload struct {
 	ValidatorId string
+}
+
+type ProposalSubmittedPayload struct {
+	ProposalId   string
+	ProposalType string
+	Title        string
+}
+
+type VoteCastPayload struct {
+	ProposalId  string
+	ValidatorId string
+	Choice      string
+	Stake       int64
+}
+
+type ProposalPassedPayload struct {
+	ProposalId string
+}
+
+type ProposalRejectedPayload struct {
+	ProposalId string
+}
+
+type ProposalExecutedPayload struct {
+	ProposalId string
 }

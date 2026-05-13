@@ -20,6 +20,8 @@ const (
 	TxKYCApprove
 	TxBondValidator
 	TxUnbondValidator
+	TxSubmitProposal
+	TxVote
 )
 
 type Transaction struct {
@@ -103,6 +105,16 @@ func computeTxHash(tx Transaction, blockHeight int64) string {
 		data += ":" + strconv.FormatInt(p.StakeAmount, 10)
 	case UnbondValidatorPayload:
 		data += ":" + p.ValidatorId
+	case SubmitProposalPayload:
+		data += ":" + p.ProposalType + ":" + p.Title
+		data += ":" + strconv.FormatInt(p.VoteEndHeight, 10)
+		data += ":" + strconv.FormatInt(p.MakerBps, 10)
+		data += ":" + strconv.FormatInt(p.TakerBps, 10)
+		data += ":" + strconv.FormatInt(p.MaxOrderQuantity, 10)
+		data += ":" + p.MarketId + ":" + p.BaseAsset + ":" + p.QuoteAsset
+	case VotePayload:
+		data += ":" + p.ProposalId + ":" + p.ValidatorId + ":" + p.Choice
+		data += ":" + strconv.FormatInt(p.Stake, 10)
 	}
 
 	data += ":" + strconv.FormatInt(blockHeight, 10)

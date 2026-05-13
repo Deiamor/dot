@@ -47,6 +47,37 @@ type KYCApprovePayload struct {
 	Status    string // "APPROVED" | "REVOKED" | "EXEMPT"
 }
 
+// SubmitProposalPayload carries all parameters for a governance proposal.
+// Only the fields relevant to ProposalType are used on execution.
+type SubmitProposalPayload struct {
+	ProposalType string
+	Title        string
+	Description  string
+	VoteEndHeight int64
+	// Fee policy params (ProposalType="UpdateFeePolicy")
+	MakerBps int64
+	TakerBps int64
+	// Risk policy params (ProposalType="UpdateRiskPolicy")
+	MaxOrderQuantity            int64
+	MinOrderQuantity            int64
+	MaxDailyVolumePerSession    int64
+	MaxPositionSize             int64
+	RequireKYC                  bool
+	AMLSingleTradeLimitNotional int64
+	// Market listing params (ProposalType="ListMarket")
+	MarketId   string
+	BaseAsset  string
+	QuoteAsset string
+}
+
+// VotePayload casts a stake-weighted vote on a governance proposal.
+type VotePayload struct {
+	ProposalId  string
+	ValidatorId string
+	Choice      string // "YES" | "NO" | "ABSTAIN"
+	Stake       int64
+}
+
 // BondValidatorPayload bonds stake to join the active validator set.
 type BondValidatorPayload struct {
 	ValidatorId string
@@ -140,6 +171,29 @@ func (b *BatchBuilder) AddKYCApprove(accountId, status string) *BatchBuilder {
 		TxType:    TxKYCApprove,
 		AccountId: accountId,
 		Payload:   KYCApprovePayload{AccountId: accountId, Status: status},
+	})
+	return b
+}
+
+// AddSubmitProposal adds a governance proposal transaction to the batch.
+func (b *BatchBuilder) AddSubmitProposal(p SubmitProposalPayload) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:  TxSubmitProposal,
+		Payload: p,
+	})
+	return b
+}
+
+// AddVote adds a governance vote transaction to the batch.
+func (b *BatchBuilder) AddVote(proposalId, validatorId, choice string, stake int64) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType: TxVote,
+		Payload: VotePayload{
+			ProposalId:  proposalId,
+			ValidatorId: validatorId,
+			Choice:      choice,
+			Stake:       stake,
+		},
 	})
 	return b
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
+	"github.com/byunghee1994/fairspeed-dex/internal/governance"
 	"github.com/byunghee1994/fairspeed-dex/internal/risk"
 	"github.com/byunghee1994/fairspeed-dex/internal/settlement"
 	"github.com/byunghee1994/fairspeed-dex/internal/state"
@@ -14,16 +15,18 @@ import (
 )
 
 type LocalBlockProcessor struct {
-	AccountKeeper    *account.AccountKeeper
-	AssetKeeper      *asset.AssetKeeper
-	OrderBookKeeper  *clob.OrderBookKeeper
-	MatchingEngine   clob.MatchingEngine
-	SettlementEngine *settlement.SettlementEngine
-	SettlementKeeper *settlement.SettlementKeeper
-	RiskChecker      *risk.RiskChecker
-	ValidatorKeeper  *validator.ValidatorKeeper
-	EventBus         *state.EventBus
-	AppState         *state.AppState
+	AccountKeeper      *account.AccountKeeper
+	AssetKeeper        *asset.AssetKeeper
+	OrderBookKeeper    *clob.OrderBookKeeper
+	MatchingEngine     clob.MatchingEngine
+	SettlementEngine   *settlement.SettlementEngine
+	SettlementKeeper   *settlement.SettlementKeeper
+	RiskChecker        *risk.RiskChecker
+	ValidatorKeeper    *validator.ValidatorKeeper
+	GovernanceKeeper   *governance.GovernanceKeeper
+	GovernanceExecutor governance.ParameterExecutor
+	EventBus           *state.EventBus
+	AppState           *state.AppState
 }
 
 func (p *LocalBlockProcessor) ProcessBlock(block LocalBlock) (BlockResult, error) {
@@ -54,6 +57,11 @@ func (p *LocalBlockProcessor) ProcessBlock(block LocalBlock) (BlockResult, error
 			return BlockResult{}, fmt.Errorf("processing tx type=%d: %w", tx.TxType, err)
 		}
 		txCount++
+	}
+
+	// Tally governance proposals whose voting period ends at this block.
+	if p.GovernanceKeeper != nil {
+		p.GovernanceKeeper.TallyAndExecute(block.Height, p.GovernanceExecutor)
 	}
 
 	allTrades = p.SettlementKeeper.TradesForBlock(block.Height)
@@ -158,6 +166,26 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 			return fmt.Errorf("validator keeper not configured")
 		}
 		return p.ValidatorKeeper.UnbondValidator(payload.ValidatorId, blockHeight)
+
+	case fairbatch.TxSubmitProposal:
+		payload := tx.Payload.(fairbatch.SubmitProposalPayload)
+		if p.GovernanceKeeper == nil {
+			return fmt.Errorf("governance keeper not configured")
+		}
+		govPayload := p.buildGovernancePayload(payload)
+		_, err := p.GovernanceKeeper.SubmitProposal(
+			governance.ProposalType(payload.ProposalType),
+			payload.Title, payload.Description,
+			govPayload, payload.VoteEndHeight, blockHeight)
+		return err
+
+	case fairbatch.TxVote:
+		payload := tx.Payload.(fairbatch.VotePayload)
+		if p.GovernanceKeeper == nil {
+			return fmt.Errorf("governance keeper not configured")
+		}
+		return p.GovernanceKeeper.CastVote(
+			payload.ProposalId, payload.ValidatorId, payload.Choice, payload.Stake, blockHeight)
 
 	default:
 		return fmt.Errorf("unknown transaction type: %d", tx.TxType)
@@ -272,6 +300,30 @@ func (p *LocalBlockProcessor) getOrStoreOrder(o *clob.Order) *clob.Order {
 		return stored
 	}
 	return o
+}
+
+func (p *LocalBlockProcessor) buildGovernancePayload(sp fairbatch.SubmitProposalPayload) any {
+	switch governance.ProposalType(sp.ProposalType) {
+	case governance.TypeUpdateFeePolicy:
+		return governance.UpdateFeePolicyParams{MakerBps: sp.MakerBps, TakerBps: sp.TakerBps}
+	case governance.TypeUpdateRiskPolicy:
+		return governance.UpdateRiskPolicyParams{
+			MaxOrderQuantity:            sp.MaxOrderQuantity,
+			MinOrderQuantity:            sp.MinOrderQuantity,
+			MaxDailyVolumePerSession:    sp.MaxDailyVolumePerSession,
+			MaxPositionSize:             sp.MaxPositionSize,
+			RequireKYC:                  sp.RequireKYC,
+			AMLSingleTradeLimitNotional: sp.AMLSingleTradeLimitNotional,
+		}
+	case governance.TypeListMarket:
+		return governance.ListMarketParams{
+			MarketId:   sp.MarketId,
+			BaseAsset:  sp.BaseAsset,
+			QuoteAsset: sp.QuoteAsset,
+		}
+	default:
+		return nil
+	}
 }
 
 func (p *LocalBlockProcessor) processWithdraw(payload fairbatch.WithdrawPayload, txHash string, blockHeight int64) error {

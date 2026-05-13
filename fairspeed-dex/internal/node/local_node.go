@@ -6,6 +6,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
 	"github.com/byunghee1994/fairspeed-dex/internal/fee"
+	"github.com/byunghee1994/fairspeed-dex/internal/governance"
 	"github.com/byunghee1994/fairspeed-dex/internal/risk"
 	"github.com/byunghee1994/fairspeed-dex/internal/settlement"
 	"github.com/byunghee1994/fairspeed-dex/internal/state"
@@ -13,14 +14,17 @@ import (
 )
 
 type LocalNode struct {
-	processor        *LocalBlockProcessor
-	chain            []LocalBlock
-	bus              *state.EventBus
-	AppState         *state.AppState
-	AssetKeeper      *asset.AssetKeeper
-	positionTracker  *risk.PositionTracker
-	insuranceFund    *risk.InsuranceFund
-	validatorKeeper  *validator.ValidatorKeeper
+	processor         *LocalBlockProcessor
+	chain             []LocalBlock
+	bus               *state.EventBus
+	AppState          *state.AppState
+	AssetKeeper       *asset.AssetKeeper
+	positionTracker   *risk.PositionTracker
+	insuranceFund     *risk.InsuranceFund
+	validatorKeeper   *validator.ValidatorKeeper
+	governanceKeeper  *governance.GovernanceKeeper
+	feeCalc           *fee.FeeCalculator
+	riskChecker       *risk.RiskChecker
 }
 
 func NewLocalNode() *LocalNode {
@@ -50,29 +54,37 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 	matcher := clob.PricePriorityMatcher{}
 
 	validatorKeeper := validator.NewValidatorKeeper(appState, adapter)
+	governanceKeeper := governance.NewGovernanceKeeper(appState, adapter)
+
+	n := &LocalNode{
+		bus:              bus,
+		AppState:         appState,
+		AssetKeeper:      assetKeeper,
+		positionTracker:  positionTracker,
+		insuranceFund:    insuranceFund,
+		validatorKeeper:  validatorKeeper,
+		governanceKeeper: governanceKeeper,
+		feeCalc:          feeCalc,
+		riskChecker:      riskChecker,
+	}
 
 	processor := &LocalBlockProcessor{
-		AccountKeeper:    accountKeeper,
-		AssetKeeper:      assetKeeper,
-		OrderBookKeeper:  orderBookKeeper,
-		MatchingEngine:   matcher,
-		SettlementEngine: settlementEngine,
-		SettlementKeeper: settlementKeeper,
-		RiskChecker:      riskChecker,
-		ValidatorKeeper:  validatorKeeper,
-		EventBus:         bus,
-		AppState:         appState,
+		AccountKeeper:      accountKeeper,
+		AssetKeeper:        assetKeeper,
+		OrderBookKeeper:    orderBookKeeper,
+		MatchingEngine:     matcher,
+		SettlementEngine:   settlementEngine,
+		SettlementKeeper:   settlementKeeper,
+		RiskChecker:        riskChecker,
+		ValidatorKeeper:    validatorKeeper,
+		GovernanceKeeper:   governanceKeeper,
+		GovernanceExecutor: n,
+		EventBus:           bus,
+		AppState:           appState,
 	}
+	n.processor = processor
 
-	return &LocalNode{
-		processor:       processor,
-		bus:             bus,
-		AppState:        appState,
-		AssetKeeper:     assetKeeper,
-		positionTracker: positionTracker,
-		insuranceFund:   insuranceFund,
-		validatorKeeper: validatorKeeper,
-	}
+	return n
 }
 
 func (n *LocalNode) SubmitBatch(batch fairbatch.FairBatch) (BlockResult, error) {
@@ -221,6 +233,48 @@ func (n *LocalNode) SlashValidator(validatorId, reason string) (int64, error) {
 // TotalValidatorStake returns the sum of all bonded stake.
 func (n *LocalNode) TotalValidatorStake() int64 {
 	return n.validatorKeeper.TotalStake()
+}
+
+// --- governance.ParameterExecutor ---
+
+// UpdateFeePolicy applies an approved fee policy change immediately.
+func (n *LocalNode) UpdateFeePolicy(params governance.UpdateFeePolicyParams) error {
+	n.feeCalc.SetPolicy(fee.FeeBps{MakerBps: params.MakerBps, TakerBps: params.TakerBps})
+	return nil
+}
+
+// UpdateRiskPolicy applies an approved risk policy change immediately.
+func (n *LocalNode) UpdateRiskPolicy(params governance.UpdateRiskPolicyParams) error {
+	n.riskChecker.SetPolicy(risk.RiskPolicy{
+		MaxOrderQuantity:            params.MaxOrderQuantity,
+		MinOrderQuantity:            params.MinOrderQuantity,
+		MaxDailyVolumePerSession:    params.MaxDailyVolumePerSession,
+		MaxPositionSize:             params.MaxPositionSize,
+		RequireKYC:                  params.RequireKYC,
+		AMLSingleTradeLimitNotional: params.AMLSingleTradeLimitNotional,
+	})
+	return nil
+}
+
+// ListMarket registers the base and quote assets for a new market.
+func (n *LocalNode) ListMarket(params governance.ListMarketParams) error {
+	if params.BaseAsset != "" {
+		n.AssetKeeper.RegisterAsset(asset.Asset{AssetId: params.BaseAsset, Symbol: params.BaseAsset, Decimals: 8})
+	}
+	if params.QuoteAsset != "" {
+		n.AssetKeeper.RegisterAsset(asset.Asset{AssetId: params.QuoteAsset, Symbol: params.QuoteAsset, Decimals: 6})
+	}
+	return nil
+}
+
+// AllProposals returns all governance proposals.
+func (n *LocalNode) AllProposals() []governance.Proposal {
+	return n.governanceKeeper.AllProposals()
+}
+
+// GetProposal returns a proposal by ID.
+func (n *LocalNode) GetProposal(proposalId string) (governance.Proposal, bool) {
+	return n.governanceKeeper.GetProposal(proposalId)
 }
 
 // GetInsuranceFundBalance returns the current insurance fund balance for an asset.

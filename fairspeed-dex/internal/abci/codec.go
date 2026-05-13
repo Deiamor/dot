@@ -90,6 +90,14 @@ func DecodeTx(raw []byte) (fairbatch.Transaction, error) {
 		var p fairbatch.UnbondValidatorPayload
 		err = json.Unmarshal(wire.Payload, &p)
 		tx.Payload = p
+	case fairbatch.TxSubmitProposal:
+		var p fairbatch.SubmitProposalPayload
+		err = json.Unmarshal(wire.Payload, &p)
+		tx.Payload = p
+	case fairbatch.TxVote:
+		var p fairbatch.VotePayload
+		err = json.Unmarshal(wire.Payload, &p)
+		tx.Payload = p
 	default:
 		return tx, fmt.Errorf("unknown tx type: %d", wire.TxType)
 	}

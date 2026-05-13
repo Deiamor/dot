@@ -27,6 +27,11 @@ func (r *RiskChecker) SetKYCStore(store KYCStore) {
 	r.kycStore = store
 }
 
+// SetPolicy replaces the active risk policy. Called by governance on proposal execution.
+func (r *RiskChecker) SetPolicy(p RiskPolicy) {
+	r.policy = p
+}
+
 func (r *RiskChecker) CheckOrder(o *clob.Order, sess *account.TradingSession, blockHeight int64) error {
 	if o.Quantity < r.policy.MinOrderQuantity {
 		return fmt.Errorf("order quantity %d below minimum %d", o.Quantity, r.policy.MinOrderQuantity)

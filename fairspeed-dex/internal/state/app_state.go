@@ -10,6 +10,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
+	"github.com/byunghee1994/fairspeed-dex/internal/governance"
 	"github.com/byunghee1994/fairspeed-dex/internal/validator"
 )
 
@@ -36,6 +37,8 @@ type AppState struct {
 	Orders      map[string]*clob.Order
 	OrderBooks  map[string]*clob.OrderBook
 	Validators  map[string]*validator.Validator
+	Proposals   map[string]*governance.Proposal
+	Votes       map[string][]governance.VoteRecord // keyed by proposalId
 	BlockHeight int64
 }
 
@@ -48,6 +51,8 @@ func NewAppState() *AppState {
 		Orders:     make(map[string]*clob.Order),
 		OrderBooks: make(map[string]*clob.OrderBook),
 		Validators: make(map[string]*validator.Validator),
+		Proposals:  make(map[string]*governance.Proposal),
+		Votes:      make(map[string][]governance.VoteRecord),
 	}
 }
 
@@ -122,6 +127,59 @@ func (s *AppState) AllValidators() []validator.Validator {
 		result = append(result, *v)
 	}
 	return result
+}
+
+// --- governance.ProposalStore ---
+
+func (s *AppState) GetProposal(proposalId string) (governance.Proposal, bool) {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	p, ok := s.Proposals[proposalId]
+	if !ok {
+		return governance.Proposal{}, false
+	}
+	return *p, true
+}
+
+func (s *AppState) SetProposal(p governance.Proposal) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	cp := p
+	s.Proposals[p.ProposalId] = &cp
+}
+
+func (s *AppState) AllProposals() []governance.Proposal {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	result := make([]governance.Proposal, 0, len(s.Proposals))
+	for _, p := range s.Proposals {
+		result = append(result, *p)
+	}
+	return result
+}
+
+func (s *AppState) GetVotesForProposal(proposalId string) []governance.VoteRecord {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	votes := s.Votes[proposalId]
+	out := make([]governance.VoteRecord, len(votes))
+	copy(out, votes)
+	return out
+}
+
+func (s *AppState) AddVote(v governance.VoteRecord) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	// Replace existing vote from same validator if present.
+	existing := s.Votes[v.ProposalId]
+	for i, ev := range existing {
+		if ev.ValidatorId == v.ValidatorId {
+			existing[i] = v
+			s.Votes[v.ProposalId] = existing
+			return
+		}
+	}
+	s.Votes[v.ProposalId] = append(existing, v)
 }
 
 func (s *AppState) GetSession(id string) (*account.TradingSession, bool) {

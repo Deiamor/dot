@@ -22,3 +22,8 @@ func (c *FeeCalculator) CalcFees(price, qty int64) (makerFee, takerFee int64) {
 	notional := price * qty
 	return c.CalcMakerFee(notional), c.CalcTakerFee(notional)
 }
+
+// SetPolicy replaces the active fee policy. Called by governance on proposal execution.
+func (c *FeeCalculator) SetPolicy(p FeeBps) {
+	c.Policy = p
+}
