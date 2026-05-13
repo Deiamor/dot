@@ -320,6 +320,31 @@ func (b *BatchBuilder) AddSubmitPrice(marketId, validatorId string, price int64)
 }
 
 
+// WithdrawRequestPayload requests a large withdrawal that requires a timelock delay.
+type WithdrawRequestPayload struct {
+	AccountId       string
+	AssetId         string
+	Amount          int64
+	AccountSequence uint64
+	Signature       string
+}
+
+// AddWithdrawRequest appends a timelocked withdrawal request to the batch.
+func (b *BatchBuilder) AddWithdrawRequest(accountId, assetId string, amount int64, seq uint64, sig string) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:    TxWithdrawRequest,
+		AccountId: accountId,
+		Payload: WithdrawRequestPayload{
+			AccountId:       accountId,
+			AssetId:         assetId,
+			Amount:          amount,
+			AccountSequence: seq,
+			Signature:       sig,
+		},
+	})
+	return b
+}
+
 func (b *BatchBuilder) Build() FairBatch {
 	sorted, batchHash := SortAndHash(b.txs, b.blockHeight)
 	return FairBatch{

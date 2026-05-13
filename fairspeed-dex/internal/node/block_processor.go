@@ -1,7 +1,9 @@
 package node
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"strconv"
 
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
@@ -71,6 +73,9 @@ func (p *LocalBlockProcessor) ProcessBlock(block LocalBlock) (BlockResult, error
 	if p.GovernanceKeeper != nil {
 		p.GovernanceKeeper.TallyAndExecute(block.Height, p.GovernanceExecutor)
 	}
+
+	// Auto-finalize timelocked withdrawals that are now ready.
+	p.processReadyWithdrawals(block.Height)
 
 	allTrades = p.SettlementKeeper.TradesForBlock(block.Height)
 	p.AppState.IncrementBlock()
@@ -269,6 +274,10 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 		})
 		return nil
 
+	case fairbatch.TxWithdrawRequest:
+		payload := tx.Payload.(fairbatch.WithdrawRequestPayload)
+		return p.processWithdrawRequest(payload, tx.TxHash, blockHeight)
+
 	default:
 		return fmt.Errorf("unknown transaction type: %d", tx.TxType)
 	}
@@ -411,6 +420,77 @@ func (p *LocalBlockProcessor) buildGovernancePayload(sp fairbatch.SubmitProposal
 		}
 	default:
 		return nil
+	}
+}
+
+// processWithdrawRequest handles TxWithdrawRequest: validates auth, reserves funds,
+// and creates a pending withdrawal that auto-finalizes after the timelock delay.
+func (p *LocalBlockProcessor) processWithdrawRequest(payload fairbatch.WithdrawRequestPayload, txHash string, blockHeight int64) error {
+	acc, ok := p.AppState.GetAccount(payload.AccountId)
+	if !ok {
+		return fmt.Errorf("account not found: %s", payload.AccountId)
+	}
+	if payload.AccountSequence != acc.AccountSequence {
+		return fmt.Errorf("withdraw request sequence mismatch: expected %d got %d", acc.AccountSequence, payload.AccountSequence)
+	}
+	if payload.Signature != "" && acc.WithdrawalPublicKey != "" {
+		if err := account.VerifyOrderSignature(txHash, payload.Signature, acc.WithdrawalPublicKey); err != nil {
+			return fmt.Errorf("invalid withdrawal signature: %w", err)
+		}
+	}
+	if _, err := p.AccountKeeper.IncrementSequence(payload.AccountId); err != nil {
+		return fmt.Errorf("increment sequence: %w", err)
+	}
+	// Reserve funds so they cannot be spent while the withdrawal is pending.
+	if err := p.AssetKeeper.Reserve(payload.AccountId, payload.AssetId, payload.Amount); err != nil {
+		return fmt.Errorf("reserve for withdrawal: %w", err)
+	}
+	readyAt := blockHeight + p.RiskChecker.WithdrawTimelockBlocks()
+	// Deterministic ID: sha256 of txHash + blockHeight.
+	sum := sha256.Sum256([]byte(txHash + ":" + strconv.FormatInt(blockHeight, 10)))
+	wid := fmt.Sprintf("wd-%x", sum[:8])
+	p.AppState.AddPendingWithdrawal(account.PendingWithdrawal{
+		WithdrawalId:  wid,
+		AccountId:     payload.AccountId,
+		AssetId:       payload.AssetId,
+		Amount:        payload.Amount,
+		ReadyAtHeight: readyAt,
+	})
+	p.EventBus.Publish(state.Event{
+		Type:        state.EventWithdrawRequested,
+		BlockHeight: blockHeight,
+		Payload: state.WithdrawRequestedPayload{
+			WithdrawalId:  wid,
+			AccountId:     payload.AccountId,
+			AssetId:       payload.AssetId,
+			Amount:        payload.Amount,
+			ReadyAtHeight: readyAt,
+		},
+	})
+	return nil
+}
+
+// processReadyWithdrawals finalizes all pending withdrawals whose timelock has elapsed.
+func (p *LocalBlockProcessor) processReadyWithdrawals(blockHeight int64) {
+	ready := p.AppState.ReadyWithdrawals(blockHeight)
+	for _, w := range ready {
+		// Transfer reserved funds out of the account (completed withdrawal).
+		if err := p.AssetKeeper.Release(w.AccountId, w.AssetId, w.Amount); err == nil {
+			if err := p.AssetKeeper.Withdraw(w.AccountId, w.AssetId, w.Amount); err == nil {
+				p.AppState.CompletePendingWithdrawal(w.WithdrawalId)
+				p.EventBus.Publish(state.Event{
+					Type:        state.EventWithdrawFinalized,
+					BlockHeight: blockHeight,
+					Payload: state.WithdrawFinalizedPayload{
+						WithdrawalId: w.WithdrawalId,
+						AccountId:    w.AccountId,
+						AssetId:      w.AssetId,
+						Amount:       w.Amount,
+						BlockHeight:  blockHeight,
+					},
+				})
+			}
+		}
 	}
 }
 

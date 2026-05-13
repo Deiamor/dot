@@ -55,6 +55,8 @@ type UpdateRiskPolicyParams struct {
 	RequireKYC                  bool
 	AMLSingleTradeLimitNotional int64
 	MaxOrdersPerBlock           int64 // 0 = unlimited
+	WithdrawTimelockThreshold   int64 // 0 = no timelock
+	WithdrawTimelockBlocks      int64 // delay in blocks
 }
 
 // ListMarketParams are the execution parameters for a ListMarket proposal.

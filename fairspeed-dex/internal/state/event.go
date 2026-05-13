@@ -34,7 +34,9 @@ const (
 
 	EventMarketHalted     EventType = "MARKET_HALTED"
 	EventMarketResumed    EventType = "MARKET_RESUMED"
-	EventMarkPriceUpdated EventType = "MARK_PRICE_UPDATED"
+	EventMarkPriceUpdated       EventType = "MARK_PRICE_UPDATED"
+	EventWithdrawRequested      EventType = "WITHDRAW_REQUESTED"
+	EventWithdrawFinalized      EventType = "WITHDRAW_FINALIZED"
 
 	EventAll EventType = "*"
 )
@@ -224,5 +226,21 @@ type MarkPriceUpdatedPayload struct {
 	MarketId    string
 	MarkPrice   int64
 	BlockHeight int64
+}
+
+type WithdrawRequestedPayload struct {
+	WithdrawalId  string
+	AccountId     string
+	AssetId       string
+	Amount        int64
+	ReadyAtHeight int64
+}
+
+type WithdrawFinalizedPayload struct {
+	WithdrawalId string
+	AccountId    string
+	AssetId      string
+	Amount       int64
+	BlockHeight  int64
 }
 

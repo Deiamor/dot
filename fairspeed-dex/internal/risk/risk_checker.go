@@ -72,6 +72,16 @@ func (r *RiskChecker) SetPolicy(p RiskPolicy) {
 	r.policy = p
 }
 
+// WithdrawTimelockBlocks returns the configured timelock delay for large withdrawals.
+func (r *RiskChecker) WithdrawTimelockBlocks() int64 {
+	return r.policy.WithdrawTimelockBlocks
+}
+
+// WithdrawTimelockThreshold returns the amount above which a timelock applies.
+func (r *RiskChecker) WithdrawTimelockThreshold() int64 {
+	return r.policy.WithdrawTimelockThreshold
+}
+
 func (r *RiskChecker) CheckOrder(o *clob.Order, sess *account.TradingSession, blockHeight int64) error {
 	if o.Quantity < r.policy.MinOrderQuantity {
 		return fmt.Errorf("order quantity %d below minimum %d", o.Quantity, r.policy.MinOrderQuantity)

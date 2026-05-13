@@ -27,6 +27,7 @@ const (
 	TxHaltMarket
 	TxResumeMarket
 	TxSubmitPrice
+	TxWithdrawRequest
 )
 
 type Transaction struct {
@@ -131,6 +132,10 @@ func computeTxHash(tx Transaction, blockHeight int64) string {
 	case SubmitPricePayload:
 		data += ":" + p.MarketId + ":" + p.ValidatorId
 		data += ":" + strconv.FormatInt(p.Price, 10)
+	case WithdrawRequestPayload:
+		data += ":" + p.AccountId + ":" + p.AssetId
+		data += ":" + strconv.FormatInt(p.Amount, 10)
+		data += ":" + strconv.FormatUint(p.AccountSequence, 10)
 	}
 
 	data += ":" + strconv.FormatInt(blockHeight, 10)

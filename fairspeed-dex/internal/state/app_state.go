@@ -42,10 +42,11 @@ type AppState struct {
 	Proposals   map[string]*governance.Proposal
 	Votes       map[string][]governance.VoteRecord // keyed by proposalId
 	Sanctions   map[string]*compliance.SanctionEntry
-	Markets          map[string]*clob.MarketInfo                       // per-market status (halt/resume)
-	OraclePrices     map[string]map[string]*oracle.PriceSubmission     // marketId → validatorId → submission
-	OrdersThisBlock  map[string]int64                                  // accountId → orders submitted this block
-	BlockHeight      int64
+	Markets             map[string]*clob.MarketInfo                       // per-market status (halt/resume)
+	OraclePrices        map[string]map[string]*oracle.PriceSubmission     // marketId → validatorId → submission
+	OrdersThisBlock     map[string]int64                                  // accountId → orders submitted this block
+	PendingWithdrawals  map[string]*account.PendingWithdrawal             // withdrawalId → pending withdrawal
+	BlockHeight         int64
 }
 
 func NewAppState() *AppState {
@@ -59,10 +60,11 @@ func NewAppState() *AppState {
 		Validators: make(map[string]*validator.Validator),
 		Proposals:  make(map[string]*governance.Proposal),
 		Votes:      make(map[string][]governance.VoteRecord),
-		Sanctions:       make(map[string]*compliance.SanctionEntry),
-		Markets:         make(map[string]*clob.MarketInfo),
-		OraclePrices:    make(map[string]map[string]*oracle.PriceSubmission),
-		OrdersThisBlock: make(map[string]int64),
+		Sanctions:          make(map[string]*compliance.SanctionEntry),
+		Markets:            make(map[string]*clob.MarketInfo),
+		OraclePrices:       make(map[string]map[string]*oracle.PriceSubmission),
+		OrdersThisBlock:    make(map[string]int64),
+		PendingWithdrawals: make(map[string]*account.PendingWithdrawal),
 	}
 }
 
@@ -477,6 +479,57 @@ func (s *AppState) AllOraclePrices(marketId string) []oracle.PriceSubmission {
 	return result
 }
 
+// ---- withdrawal timelock ----------------------------------------------------
+
+// AddPendingWithdrawal stores a new pending withdrawal request.
+func (s *AppState) AddPendingWithdrawal(w account.PendingWithdrawal) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	cp := w
+	s.PendingWithdrawals[w.WithdrawalId] = &cp
+}
+
+// GetPendingWithdrawal returns the pending withdrawal for the given ID.
+func (s *AppState) GetPendingWithdrawal(id string) (*account.PendingWithdrawal, bool) {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	w, ok := s.PendingWithdrawals[id]
+	return w, ok
+}
+
+// ReadyWithdrawals returns all pending withdrawals whose ReadyAtHeight ≤ blockHeight.
+func (s *AppState) ReadyWithdrawals(blockHeight int64) []account.PendingWithdrawal {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	var result []account.PendingWithdrawal
+	for _, w := range s.PendingWithdrawals {
+		if w.ReadyAtHeight <= blockHeight {
+			result = append(result, *w)
+		}
+	}
+	return result
+}
+
+// CompletePendingWithdrawal removes a pending withdrawal (called after finalization).
+func (s *AppState) CompletePendingWithdrawal(id string) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	delete(s.PendingWithdrawals, id)
+}
+
+// AllPendingWithdrawalsForAccount returns all pending withdrawals for an account.
+func (s *AppState) AllPendingWithdrawalsForAccount(accountId string) []account.PendingWithdrawal {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	var result []account.PendingWithdrawal
+	for _, w := range s.PendingWithdrawals {
+		if w.AccountId == accountId {
+			result = append(result, *w)
+		}
+	}
+	return result
+}
+
 // ---- snapshot persistence ---------------------------------------------------
 
 type appStateSnapshot struct {
@@ -490,9 +543,10 @@ type appStateSnapshot struct {
 	Validators  map[string]*validator.Validator          `json:"validators,omitempty"`
 	Proposals   map[string]*governance.Proposal          `json:"proposals,omitempty"`
 	Votes       map[string][]governance.VoteRecord       `json:"votes,omitempty"`
-	Sanctions    map[string]*compliance.SanctionEntry               `json:"sanctions,omitempty"`
-	Markets      map[string]*clob.MarketInfo                        `json:"markets,omitempty"`
-	OraclePrices map[string]map[string]*oracle.PriceSubmission      `json:"oracle_prices,omitempty"`
+	Sanctions          map[string]*compliance.SanctionEntry              `json:"sanctions,omitempty"`
+	Markets            map[string]*clob.MarketInfo                       `json:"markets,omitempty"`
+	OraclePrices       map[string]map[string]*oracle.PriceSubmission     `json:"oracle_prices,omitempty"`
+	PendingWithdrawals map[string]*account.PendingWithdrawal             `json:"pending_withdrawals,omitempty"`
 }
 
 // SaveSnapshot serialises the current state to disk atomically (write-then-rename).
@@ -512,8 +566,9 @@ func (s *AppState) SaveSnapshot(path string) error {
 		Proposals:   make(map[string]*governance.Proposal, len(s.Proposals)),
 		Votes:       make(map[string][]governance.VoteRecord, len(s.Votes)),
 		Sanctions:   make(map[string]*compliance.SanctionEntry, len(s.Sanctions)),
-		Markets:      make(map[string]*clob.MarketInfo, len(s.Markets)),
-		OraclePrices: make(map[string]map[string]*oracle.PriceSubmission, len(s.OraclePrices)),
+		Markets:            make(map[string]*clob.MarketInfo, len(s.Markets)),
+		OraclePrices:       make(map[string]map[string]*oracle.PriceSubmission, len(s.OraclePrices)),
+		PendingWithdrawals: make(map[string]*account.PendingWithdrawal, len(s.PendingWithdrawals)),
 	}
 	for k, v := range s.Accounts {
 		snap.Accounts[k] = v
@@ -562,6 +617,9 @@ func (s *AppState) SaveSnapshot(path string) error {
 			cp[vid] = sub
 		}
 		snap.OraclePrices[mkt] = cp
+	}
+	for k, v := range s.PendingWithdrawals {
+		snap.PendingWithdrawals[k] = v
 	}
 	s.globalMu.Unlock()
 
@@ -642,6 +700,9 @@ func (s *AppState) LoadSnapshot(path string) error {
 	}
 	if snap.OraclePrices != nil {
 		s.OraclePrices = snap.OraclePrices
+	}
+	if snap.PendingWithdrawals != nil {
+		s.PendingWithdrawals = snap.PendingWithdrawals
 	}
 	return nil
 }

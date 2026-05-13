@@ -284,6 +284,8 @@ func (n *LocalNode) UpdateRiskPolicy(params governance.UpdateRiskPolicyParams) e
 		RequireKYC:                  params.RequireKYC,
 		AMLSingleTradeLimitNotional: params.AMLSingleTradeLimitNotional,
 		MaxOrdersPerBlock:           params.MaxOrdersPerBlock,
+		WithdrawTimelockThreshold:   params.WithdrawTimelockThreshold,
+		WithdrawTimelockBlocks:      params.WithdrawTimelockBlocks,
 	})
 	return nil
 }
@@ -318,6 +320,11 @@ func (n *LocalNode) GetMarkPrice(marketId string) int64 {
 // GetOrderCount returns how many orders accountId has submitted in the current block.
 func (n *LocalNode) GetOrderCount(accountId string) int64 {
 	return n.AppState.GetOrderCount(accountId)
+}
+
+// GetPendingWithdrawals returns all pending timelocked withdrawals for an account.
+func (n *LocalNode) GetPendingWithdrawals(accountId string) []account.PendingWithdrawal {
+	return n.AppState.AllPendingWithdrawalsForAccount(accountId)
 }
 
 // AllSanctions returns all current on-chain sanction entries.
