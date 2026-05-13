@@ -10,6 +10,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/risk"
 	"github.com/byunghee1994/fairspeed-dex/internal/settlement"
 	"github.com/byunghee1994/fairspeed-dex/internal/state"
+	"github.com/byunghee1994/fairspeed-dex/internal/validator"
 )
 
 type LocalBlockProcessor struct {
@@ -20,6 +21,7 @@ type LocalBlockProcessor struct {
 	SettlementEngine *settlement.SettlementEngine
 	SettlementKeeper *settlement.SettlementKeeper
 	RiskChecker      *risk.RiskChecker
+	ValidatorKeeper  *validator.ValidatorKeeper
 	EventBus         *state.EventBus
 	AppState         *state.AppState
 }
@@ -141,6 +143,21 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 	case fairbatch.TxKYCApprove:
 		payload := tx.Payload.(fairbatch.KYCApprovePayload)
 		return p.AccountKeeper.UpdateKYCStatus(payload.AccountId, account.KYCStatus(payload.Status), blockHeight)
+
+	case fairbatch.TxBondValidator:
+		payload := tx.Payload.(fairbatch.BondValidatorPayload)
+		if p.ValidatorKeeper == nil {
+			return fmt.Errorf("validator keeper not configured")
+		}
+		return p.ValidatorKeeper.BondValidator(
+			payload.ValidatorId, payload.Moniker, payload.PubKey, payload.StakeAmount, blockHeight)
+
+	case fairbatch.TxUnbondValidator:
+		payload := tx.Payload.(fairbatch.UnbondValidatorPayload)
+		if p.ValidatorKeeper == nil {
+			return fmt.Errorf("validator keeper not configured")
+		}
+		return p.ValidatorKeeper.UnbondValidator(payload.ValidatorId, blockHeight)
 
 	default:
 		return fmt.Errorf("unknown transaction type: %d", tx.TxType)

@@ -144,3 +144,34 @@ func (a *busAdapter) PublishPositionUpdated(accountId, marketId string, netQuant
 		Payload:     state.PositionUpdatedPayload{AccountId: accountId, MarketId: marketId, NetQuantity: netQuantity},
 	})
 }
+
+// --- validator.EventPublisher ---
+
+func (a *busAdapter) PublishValidatorBonded(validatorId, moniker string, stake int64, blockHeight int64) {
+	a.bus.Publish(state.Event{
+		Type:        state.EventValidatorBonded,
+		BlockHeight: blockHeight,
+		Payload:     state.ValidatorBondedPayload{ValidatorId: validatorId, Moniker: moniker, Stake: stake},
+	})
+}
+
+func (a *busAdapter) PublishValidatorSlashed(validatorId, reason string, slashed, remaining int64, blockHeight int64) {
+	a.bus.Publish(state.Event{
+		Type:        state.EventValidatorSlashed,
+		BlockHeight: blockHeight,
+		Payload: state.ValidatorSlashedPayload{
+			ValidatorId:    validatorId,
+			Reason:         reason,
+			SlashedAmount:  slashed,
+			RemainingStake: remaining,
+		},
+	})
+}
+
+func (a *busAdapter) PublishValidatorUnbonded(validatorId string, blockHeight int64) {
+	a.bus.Publish(state.Event{
+		Type:        state.EventValidatorUnbonded,
+		BlockHeight: blockHeight,
+		Payload:     state.ValidatorUnbondedPayload{ValidatorId: validatorId},
+	})
+}

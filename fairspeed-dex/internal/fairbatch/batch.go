@@ -11,13 +11,15 @@ import (
 type TransactionType int
 
 const (
-	TxCreateAccount TransactionType = iota
+	TxCreateAccount  TransactionType = iota
 	TxCreateSession
 	TxDeposit
 	TxSubmitOrder
 	TxCancelOrder
 	TxWithdraw
 	TxKYCApprove
+	TxBondValidator
+	TxUnbondValidator
 )
 
 type Transaction struct {
@@ -96,6 +98,11 @@ func computeTxHash(tx Transaction, blockHeight int64) string {
 		data += ":" + strconv.FormatUint(p.AccountSequence, 10)
 	case KYCApprovePayload:
 		data += ":" + p.AccountId + ":" + p.Status
+	case BondValidatorPayload:
+		data += ":" + p.ValidatorId + ":" + p.Moniker + ":" + p.PubKey
+		data += ":" + strconv.FormatInt(p.StakeAmount, 10)
+	case UnbondValidatorPayload:
+		data += ":" + p.ValidatorId
 	}
 
 	data += ":" + strconv.FormatInt(blockHeight, 10)

@@ -10,6 +10,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/account"
 	"github.com/byunghee1994/fairspeed-dex/internal/asset"
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
+	"github.com/byunghee1994/fairspeed-dex/internal/validator"
 )
 
 // AppState is the single in-memory truth for all DEX state.
@@ -34,6 +35,7 @@ type AppState struct {
 	Assets      map[string]*asset.Asset
 	Orders      map[string]*clob.Order
 	OrderBooks  map[string]*clob.OrderBook
+	Validators  map[string]*validator.Validator
 	BlockHeight int64
 }
 
@@ -45,6 +47,7 @@ func NewAppState() *AppState {
 		Assets:     make(map[string]*asset.Asset),
 		Orders:     make(map[string]*clob.Order),
 		OrderBooks: make(map[string]*clob.OrderBook),
+		Validators: make(map[string]*validator.Validator),
 	}
 }
 
@@ -90,6 +93,35 @@ func (s *AppState) GetKYCStatus(accountId string) account.KYCStatus {
 		return account.KYCStatusPending
 	}
 	return a.KYCStatus
+}
+
+// --- validator.ValidatorStore ---
+
+func (s *AppState) GetValidator(validatorId string) (validator.Validator, bool) {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	v, ok := s.Validators[validatorId]
+	if !ok {
+		return validator.Validator{}, false
+	}
+	return *v, true
+}
+
+func (s *AppState) SetValidator(v validator.Validator) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	cp := v
+	s.Validators[v.ValidatorId] = &cp
+}
+
+func (s *AppState) AllValidators() []validator.Validator {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	result := make([]validator.Validator, 0, len(s.Validators))
+	for _, v := range s.Validators {
+		result = append(result, *v)
+	}
+	return result
 }
 
 func (s *AppState) GetSession(id string) (*account.TradingSession, bool) {

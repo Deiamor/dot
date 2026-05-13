@@ -23,6 +23,9 @@ const (
 	EventPositionUpdated       EventType = "POSITION_UPDATED"
 	EventKYCStatusUpdated      EventType = "KYC_STATUS_UPDATED"
 	EventAMLAlert              EventType = "AML_ALERT"
+	EventValidatorBonded       EventType = "VALIDATOR_BONDED"
+	EventValidatorSlashed      EventType = "VALIDATOR_SLASHED"
+	EventValidatorUnbonded     EventType = "VALIDATOR_UNBONDED"
 
 	EventAll EventType = "*"
 )
@@ -153,4 +156,21 @@ type AMLAlertPayload struct {
 	MarketId  string
 	Notional  int64
 	Threshold int64
+}
+
+type ValidatorBondedPayload struct {
+	ValidatorId string
+	Moniker     string
+	Stake       int64
+}
+
+type ValidatorSlashedPayload struct {
+	ValidatorId    string
+	Reason         string
+	SlashedAmount  int64
+	RemainingStake int64
+}
+
+type ValidatorUnbondedPayload struct {
+	ValidatorId string
 }

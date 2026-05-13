@@ -9,16 +9,18 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/risk"
 	"github.com/byunghee1994/fairspeed-dex/internal/settlement"
 	"github.com/byunghee1994/fairspeed-dex/internal/state"
+	"github.com/byunghee1994/fairspeed-dex/internal/validator"
 )
 
 type LocalNode struct {
-	processor      *LocalBlockProcessor
-	chain          []LocalBlock
-	bus            *state.EventBus
-	AppState       *state.AppState
-	AssetKeeper    *asset.AssetKeeper
-	positionTracker *risk.PositionTracker
-	insuranceFund  *risk.InsuranceFund
+	processor        *LocalBlockProcessor
+	chain            []LocalBlock
+	bus              *state.EventBus
+	AppState         *state.AppState
+	AssetKeeper      *asset.AssetKeeper
+	positionTracker  *risk.PositionTracker
+	insuranceFund    *risk.InsuranceFund
+	validatorKeeper  *validator.ValidatorKeeper
 }
 
 func NewLocalNode() *LocalNode {
@@ -47,6 +49,8 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 	settlementEngine.SetAMLLimit(policy.AMLSingleTradeLimitNotional)
 	matcher := clob.PricePriorityMatcher{}
 
+	validatorKeeper := validator.NewValidatorKeeper(appState, adapter)
+
 	processor := &LocalBlockProcessor{
 		AccountKeeper:    accountKeeper,
 		AssetKeeper:      assetKeeper,
@@ -55,6 +59,7 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 		SettlementEngine: settlementEngine,
 		SettlementKeeper: settlementKeeper,
 		RiskChecker:      riskChecker,
+		ValidatorKeeper:  validatorKeeper,
 		EventBus:         bus,
 		AppState:         appState,
 	}
@@ -66,6 +71,7 @@ func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 		AssetKeeper:     assetKeeper,
 		positionTracker: positionTracker,
 		insuranceFund:   insuranceFund,
+		validatorKeeper: validatorKeeper,
 	}
 }
 
@@ -182,6 +188,39 @@ func (n *LocalNode) GetAccountSequence(accountId string) uint64 {
 // GetKYCStatus returns the current KYC status for an account.
 func (n *LocalNode) GetKYCStatus(accountId string) account.KYCStatus {
 	return n.AppState.GetKYCStatus(accountId)
+}
+
+// ActiveValidatorSet returns all BONDED validators sorted by descending stake.
+func (n *LocalNode) ActiveValidatorSet() []validator.Validator {
+	return n.validatorKeeper.ActiveSet()
+}
+
+// GetValidatorStake returns the current stake for a validator (0 if not found).
+func (n *LocalNode) GetValidatorStake(validatorId string) int64 {
+	v, ok := n.validatorKeeper.GetValidator(validatorId)
+	if !ok {
+		return 0
+	}
+	return v.Stake
+}
+
+// SlashValidator slashes a validator for the given reason ("DOUBLE_SIGN" or "FRONT_RUN").
+// Returns the amount slashed.
+func (n *LocalNode) SlashValidator(validatorId, reason string) (int64, error) {
+	height := n.AppState.CurrentHeight()
+	switch reason {
+	case "DOUBLE_SIGN":
+		return n.validatorKeeper.SlashDoubleSign(validatorId, height)
+	case "FRONT_RUN":
+		return n.validatorKeeper.SlashFrontRun(validatorId, height)
+	default:
+		return n.validatorKeeper.SlashDoubleSign(validatorId, height)
+	}
+}
+
+// TotalValidatorStake returns the sum of all bonded stake.
+func (n *LocalNode) TotalValidatorStake() int64 {
+	return n.validatorKeeper.TotalStake()
 }
 
 // GetInsuranceFundBalance returns the current insurance fund balance for an asset.

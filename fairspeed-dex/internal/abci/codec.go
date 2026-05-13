@@ -82,6 +82,14 @@ func DecodeTx(raw []byte) (fairbatch.Transaction, error) {
 		var p fairbatch.KYCApprovePayload
 		err = json.Unmarshal(wire.Payload, &p)
 		tx.Payload = p
+	case fairbatch.TxBondValidator:
+		var p fairbatch.BondValidatorPayload
+		err = json.Unmarshal(wire.Payload, &p)
+		tx.Payload = p
+	case fairbatch.TxUnbondValidator:
+		var p fairbatch.UnbondValidatorPayload
+		err = json.Unmarshal(wire.Payload, &p)
+		tx.Payload = p
 	default:
 		return tx, fmt.Errorf("unknown tx type: %d", wire.TxType)
 	}

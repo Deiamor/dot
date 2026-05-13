@@ -47,6 +47,19 @@ type KYCApprovePayload struct {
 	Status    string // "APPROVED" | "REVOKED" | "EXEMPT"
 }
 
+// BondValidatorPayload bonds stake to join the active validator set.
+type BondValidatorPayload struct {
+	ValidatorId string
+	Moniker     string
+	PubKey      string // ed25519 public key hex
+	StakeAmount int64
+}
+
+// UnbondValidatorPayload initiates graceful exit from the validator set.
+type UnbondValidatorPayload struct {
+	ValidatorId string
+}
+
 type BatchBuilder struct {
 	blockHeight int64
 	txs         []Transaction
@@ -127,6 +140,29 @@ func (b *BatchBuilder) AddKYCApprove(accountId, status string) *BatchBuilder {
 		TxType:    TxKYCApprove,
 		AccountId: accountId,
 		Payload:   KYCApprovePayload{AccountId: accountId, Status: status},
+	})
+	return b
+}
+
+// AddBondValidator adds a validator bond transaction to the batch.
+func (b *BatchBuilder) AddBondValidator(validatorId, moniker, pubKey string, stake int64) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType: TxBondValidator,
+		Payload: BondValidatorPayload{
+			ValidatorId: validatorId,
+			Moniker:     moniker,
+			PubKey:      pubKey,
+			StakeAmount: stake,
+		},
+	})
+	return b
+}
+
+// AddUnbondValidator adds a validator unbond transaction to the batch.
+func (b *BatchBuilder) AddUnbondValidator(validatorId string) *BatchBuilder {
+	b.txs = append(b.txs, Transaction{
+		TxType:  TxUnbondValidator,
+		Payload: UnbondValidatorPayload{ValidatorId: validatorId},
 	})
 	return b
 }
