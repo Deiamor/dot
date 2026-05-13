@@ -59,6 +59,11 @@ func (p *LocalBlockProcessor) ProcessBlock(block LocalBlock) (BlockResult, error
 		txCount++
 	}
 
+	// Complete any validator unbondings whose delay has elapsed.
+	if p.ValidatorKeeper != nil {
+		p.ValidatorKeeper.ProcessUnbonding(block.Height)
+	}
+
 	// Tally governance proposals whose voting period ends at this block.
 	if p.GovernanceKeeper != nil {
 		p.GovernanceKeeper.TallyAndExecute(block.Height, p.GovernanceExecutor)

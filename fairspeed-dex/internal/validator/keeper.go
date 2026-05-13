@@ -21,11 +21,13 @@ type EventPublisher interface {
 type SlashPolicy struct {
 	DoubleSignSlashBps int64 // default 500 = 5%
 	FrontRunSlashBps   int64 // default 100 = 1%
+	UnbondingPeriod    int64 // blocks between UnbondValidator call and UNBONDED; default 21
 }
 
 var DefaultSlashPolicy = SlashPolicy{
 	DoubleSignSlashBps: 500,
 	FrontRunSlashBps:   100,
+	UnbondingPeriod:    DefaultUnbondingPeriod,
 }
 
 // ValidatorKeeper manages the active validator set and slashing logic.
@@ -67,16 +69,37 @@ func (k *ValidatorKeeper) BondValidator(validatorId, moniker, pubKey string, sta
 	return nil
 }
 
-// UnbondValidator transitions a validator to UNBONDING/UNBONDED state.
+// UnbondValidator begins the unbonding process for a validator.
+// The validator moves to UNBONDING status and will transition to UNBONDED
+// after UnbondingPeriod blocks when ProcessUnbonding is called.
 func (k *ValidatorKeeper) UnbondValidator(validatorId string, blockHeight int64) error {
 	v, ok := k.store.GetValidator(validatorId)
 	if !ok {
 		return fmt.Errorf("validator %s not found", validatorId)
 	}
-	v.Status = StatusUnbonded
+	if v.Status == StatusUnbonded || v.Status == StatusUnbonding {
+		return fmt.Errorf("validator %s is already %s", validatorId, v.Status)
+	}
+	period := k.policy.UnbondingPeriod
+	if period <= 0 {
+		period = DefaultUnbondingPeriod
+	}
+	v.Status = StatusUnbonding
+	v.UnbondingHeight = blockHeight + period
 	k.store.SetValidator(v)
-	k.bus.PublishValidatorUnbonded(validatorId, blockHeight)
 	return nil
+}
+
+// ProcessUnbonding finalises unbonding for any validator whose UnbondingHeight
+// has been reached. Should be called once per block from the block processor.
+func (k *ValidatorKeeper) ProcessUnbonding(blockHeight int64) {
+	for _, v := range k.store.AllValidators() {
+		if v.Status == StatusUnbonding && v.UnbondingHeight <= blockHeight {
+			v.Status = StatusUnbonded
+			k.store.SetValidator(v)
+			k.bus.PublishValidatorUnbonded(v.ValidatorId, blockHeight)
+		}
+	}
 }
 
 // SlashDoubleSign slashes a validator by DoubleSignSlashBps for double-sign evidence.
