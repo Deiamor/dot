@@ -10,6 +10,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
 	"github.com/byunghee1994/fairspeed-dex/internal/fee"
+	"github.com/byunghee1994/fairspeed-dex/internal/funding"
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
 	"github.com/byunghee1994/fairspeed-dex/internal/risk"
 	"github.com/byunghee1994/fairspeed-dex/internal/settlement"
@@ -391,4 +392,20 @@ func (n *LocalNode) SaveSnapshot(path string) error {
 // LoadSnapshot restores state from a previously saved snapshot file.
 func (n *LocalNode) LoadSnapshot(path string) error {
 	return n.AppState.LoadSnapshot(path)
+}
+
+// GetFundingHistory returns all recorded funding epochs for marketId.
+func (n *LocalNode) GetFundingHistory(marketId string) []funding.FundingEpoch {
+	return n.AppState.GetFundingHistory(marketId)
+}
+
+// GetLastFundingBlock returns the block height of the last funding settlement for marketId.
+func (n *LocalNode) GetLastFundingBlock(marketId string) int64 {
+	return n.AppState.GetLastFundingBlock(marketId)
+}
+
+// SetIndexPrice configures the off-chain index price for funding rate calculation.
+// When set, it overrides the fallback of using the oracle mark price as index.
+func (n *LocalNode) SetIndexPrice(marketId string, price int64) {
+	n.AppState.SetIndexPrice(marketId, price)
 }

@@ -44,6 +44,7 @@ const (
 
 	EventPerpMarketRegistered   EventType = "PERP_MARKET_REGISTERED"
 	EventPerpPositionUpdated    EventType = "PERP_POSITION_UPDATED"
+	EventFundingSettled         EventType = "FUNDING_SETTLED"
 
 	EventAll EventType = "*"
 )
@@ -297,5 +298,15 @@ type BridgeCompletedPayload struct {
 	AssetId     string
 	Amount      int64
 	BlockHeight int64
+}
+
+// FundingSettledPayload is emitted after each funding epoch settlement.
+type FundingSettledPayload struct {
+	MarketId            string
+	RateBps             int64 // signed: positive = longs pay, negative = shorts pay
+	MarkPrice           int64
+	TotalLongsPaid      int64
+	TotalShortsReceived int64
+	BlockHeight         int64
 }
 

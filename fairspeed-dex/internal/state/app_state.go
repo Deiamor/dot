@@ -12,6 +12,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/bridge"
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
 	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
+	"github.com/byunghee1994/fairspeed-dex/internal/funding"
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
 	"github.com/byunghee1994/fairspeed-dex/internal/oracle"
 	"github.com/byunghee1994/fairspeed-dex/internal/validator"
@@ -49,6 +50,9 @@ type AppState struct {
 	PendingWithdrawals  map[string]*account.PendingWithdrawal             // withdrawalId → pending withdrawal
 	BridgeDeposits      map[string]*bridge.BridgeDeposit                  // depositId → deposit
 	BridgeAttestations  map[string]map[string]int64                       // depositId → validatorId → stake
+	FundingHistory      map[string][]funding.FundingEpoch                 // marketId → epoch list
+	LastFundingBlock    map[string]int64                                  // marketId → last settlement height
+	IndexPrices         map[string]int64                                  // marketId → off-chain index price (0 = use markPrice)
 	BlockHeight         int64
 }
 
@@ -70,6 +74,9 @@ func NewAppState() *AppState {
 		PendingWithdrawals: make(map[string]*account.PendingWithdrawal),
 		BridgeDeposits:     make(map[string]*bridge.BridgeDeposit),
 		BridgeAttestations: make(map[string]map[string]int64),
+		FundingHistory:     make(map[string][]funding.FundingEpoch),
+		LastFundingBlock:   make(map[string]int64),
+		IndexPrices:        make(map[string]int64),
 	}
 }
 
@@ -849,4 +856,73 @@ func (s *AppState) AllOrders() []*clob.Order {
 		orders = append(orders, o)
 	}
 	return orders
+}
+
+// ---- funding rate -----------------------------------------------------------
+
+// GetLastFundingBlock returns the block height of the last funding settlement
+// for marketId (0 if not yet settled).
+func (s *AppState) GetLastFundingBlock(marketId string) int64 {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	return s.LastFundingBlock[marketId]
+}
+
+// SetLastFundingBlock records the block height of the most recent funding
+// settlement for marketId.
+func (s *AppState) SetLastFundingBlock(marketId string, blockHeight int64) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	s.LastFundingBlock[marketId] = blockHeight
+}
+
+// AppendFundingEpoch records a funding epoch in the market's history.
+func (s *AppState) AppendFundingEpoch(epoch funding.FundingEpoch) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	s.FundingHistory[epoch.MarketId] = append(s.FundingHistory[epoch.MarketId], epoch)
+}
+
+// GetFundingHistory returns all recorded funding epochs for marketId.
+func (s *AppState) GetFundingHistory(marketId string) []funding.FundingEpoch {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	epochs := s.FundingHistory[marketId]
+	out := make([]funding.FundingEpoch, len(epochs))
+	copy(out, epochs)
+	return out
+}
+
+// SetIndexPrice sets the off-chain index price for a market.
+// When non-zero, this overrides the fallback of using markPrice as indexPrice.
+func (s *AppState) SetIndexPrice(marketId string, price int64) {
+	s.globalMu.Lock()
+	defer s.globalMu.Unlock()
+	s.IndexPrices[marketId] = price
+}
+
+// GetIndexPrice returns the configured index price for a market.
+// Falls back to the oracle mark price when no index price has been set.
+func (s *AppState) GetIndexPrice(marketId string) int64 {
+	s.globalMu.RLock()
+	p := s.IndexPrices[marketId]
+	s.globalMu.RUnlock()
+	if p != 0 {
+		return p
+	}
+	return s.GetMarkPrice(marketId)
+}
+
+// AllPerpMarkets returns all PERP market IDs and their configs.
+func (s *AppState) AllPerpMarkets() map[string]*clob.PerpConfig {
+	s.globalMu.RLock()
+	defer s.globalMu.RUnlock()
+	out := make(map[string]*clob.PerpConfig)
+	for id, m := range s.Markets {
+		if m.Type == clob.MarketTypePerp && m.PerpConfig != nil {
+			cp := *m.PerpConfig
+			out[id] = &cp
+		}
+	}
+	return out
 }

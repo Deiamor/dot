@@ -12,6 +12,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/compliance"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
 	"github.com/byunghee1994/fairspeed-dex/internal/fee"
+	"github.com/byunghee1994/fairspeed-dex/internal/funding"
 	"github.com/byunghee1994/fairspeed-dex/internal/governance"
 	"github.com/byunghee1994/fairspeed-dex/internal/oracle"
 	"github.com/byunghee1994/fairspeed-dex/internal/risk"
@@ -85,6 +86,9 @@ func (p *LocalBlockProcessor) ProcessBlock(block LocalBlock) (BlockResult, error
 
 	// Distribute accumulated treasury fees to bonded validators.
 	p.distributeFees(block.Height)
+
+	// Settle funding payments for PERP markets that have reached their interval.
+	p.settleFunding(block.Height)
 
 	allTrades = p.SettlementKeeper.TradesForBlock(block.Height)
 	p.AppState.IncrementBlock()
@@ -634,6 +638,7 @@ func (p *LocalBlockProcessor) processRegisterPerpMarket(payload fairbatch.Regist
 		MaxFundingRateBps:     payload.MaxFundingRateBps,
 	}
 	p.AppState.SetMarketAsPerp(payload.MarketId, cfg)
+	p.AppState.SetLastFundingBlock(payload.MarketId, blockHeight)
 	// Register assets for the market.
 	if payload.BaseAsset != "" {
 		p.AssetKeeper.RegisterAsset(asset.Asset{AssetId: payload.BaseAsset, Symbol: payload.BaseAsset, Decimals: 8})
@@ -770,5 +775,100 @@ func (p *LocalBlockProcessor) distributeFees(blockHeight int64) {
 				},
 			})
 		}
+	}
+}
+
+// settleFunding settles periodic funding payments for all PERP markets whose
+// FundingIntervalBlocks has elapsed since the last settlement.
+func (p *LocalBlockProcessor) settleFunding(blockHeight int64) {
+	if p.PositionTracker == nil {
+		return
+	}
+	perpMarkets := p.AppState.AllPerpMarkets()
+	for marketId, cfg := range perpMarkets {
+		if cfg.FundingIntervalBlocks <= 0 {
+			continue
+		}
+		lastBlock := p.AppState.GetLastFundingBlock(marketId)
+		if blockHeight-lastBlock < cfg.FundingIntervalBlocks {
+			continue
+		}
+
+		markPrice := p.AppState.GetMarkPrice(marketId)
+		indexPrice := p.AppState.GetIndexPrice(marketId)
+		rateBps := funding.CalcFundingRate(markPrice, indexPrice, cfg.MaxFundingRateBps)
+
+		epoch := funding.FundingEpoch{
+			MarketId:    marketId,
+			RateBps:     rateBps,
+			MarkPrice:   markPrice,
+			IndexPrice:  indexPrice,
+			BlockHeight: blockHeight,
+		}
+		p.AppState.AppendFundingEpoch(epoch)
+		p.AppState.SetLastFundingBlock(marketId, blockHeight)
+
+		// Zero rate: record epoch but skip transfers.
+		if rateBps == 0 {
+			continue
+		}
+
+		quoteAsset := cfg.QuoteAsset
+
+		positions := p.PositionTracker.AllPositions()
+		var totalLongsPaid, totalShortsReceived int64
+
+		// Two-pass: collect from payers first so treasury has funds for receivers.
+		for _, pos := range positions {
+			if pos.MarketId != marketId || pos.NetQuantity == 0 || pos.AvgEntryPrice == 0 {
+				continue
+			}
+			payment := funding.FundingPayment(pos.NetQuantity, pos.AvgEntryPrice, rateBps)
+			if payment <= 0 {
+				continue
+			}
+			bal := p.AssetKeeper.GetBalance(pos.AccountId, quoteAsset)
+			deduct := payment
+			if deduct > bal.Available {
+				deduct = bal.Available
+			}
+			if deduct > 0 {
+				_ = p.AssetKeeper.DeductAvailable(pos.AccountId, quoteAsset, deduct)
+				p.AssetKeeper.CreditAvailable(fee.TreasuryAccountId, quoteAsset, deduct)
+				totalLongsPaid += deduct
+			}
+		}
+		for _, pos := range positions {
+			if pos.MarketId != marketId || pos.NetQuantity == 0 || pos.AvgEntryPrice == 0 {
+				continue
+			}
+			payment := funding.FundingPayment(pos.NetQuantity, pos.AvgEntryPrice, rateBps)
+			if payment >= 0 {
+				continue
+			}
+			receive := -payment
+			treasuryBal := p.AssetKeeper.GetBalance(fee.TreasuryAccountId, quoteAsset)
+			if receive > treasuryBal.Available {
+				receive = treasuryBal.Available
+			}
+			if receive > 0 {
+				p.AssetKeeper.CreditAvailable(pos.AccountId, quoteAsset, receive)
+				_ = p.AssetKeeper.DeductAvailable(fee.TreasuryAccountId, quoteAsset, receive)
+				totalShortsReceived += receive
+			}
+		}
+
+		p.EventBus.Publish(state.Event{
+			Type:        state.EventFundingSettled,
+			BlockHeight: blockHeight,
+			Payload: state.FundingSettledPayload{
+				MarketId:            marketId,
+				RateBps:             rateBps,
+				MarkPrice:           markPrice,
+				TotalLongsPaid:      totalLongsPaid,
+				TotalShortsReceived: totalShortsReceived,
+				BlockHeight:         blockHeight,
+			},
+		})
 	}
 }
