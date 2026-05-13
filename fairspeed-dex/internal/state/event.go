@@ -17,8 +17,10 @@ const (
 	EventTradeExecuted  EventType = "TRADE_EXECUTED"
 	EventBalanceUpdated EventType = "BALANCE_UPDATED"
 	EventFeeCharged     EventType = "FEE_CHARGED"
-	EventBlockProcessed EventType = "BLOCK_PROCESSED"
-	EventWithdrawal     EventType = "WITHDRAWAL"
+	EventBlockProcessed        EventType = "BLOCK_PROCESSED"
+	EventWithdrawal            EventType = "WITHDRAWAL"
+	EventInsuranceFundDeposit  EventType = "INSURANCE_FUND_DEPOSIT"
+	EventPositionUpdated       EventType = "POSITION_UPDATED"
 
 	EventAll EventType = "*"
 )
@@ -126,4 +128,15 @@ type WithdrawalPayload struct {
 	AccountId string
 	AssetId   string
 	Amount    int64
+}
+
+type InsuranceFundDepositPayload struct {
+	AssetId string
+	Amount  int64
+}
+
+type PositionUpdatedPayload struct {
+	AccountId   string
+	MarketId    string
+	NetQuantity int64
 }

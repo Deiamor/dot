@@ -20,26 +20,46 @@ type SettlementEventPublisher interface {
 	PublishTradeExecuted(trade TradeExecution, blockHeight int64)
 	PublishBalanceUpdated(accountId, assetId string, newAvailable, newReserved, blockHeight int64)
 	PublishFeeCharged(accountId, tradeId, assetId string, amount int64, feeType string, blockHeight int64)
+	PublishInsuranceFundDeposit(assetId string, amount int64, blockHeight int64)
+	PublishPositionUpdated(accountId, marketId string, netQuantity int64, blockHeight int64)
+}
+
+// InsuranceFundDepositor receives a portion of each taker fee.
+// Implemented by risk.InsuranceFund; nil means disabled.
+type InsuranceFundDepositor interface {
+	Deposit(assetId string, amount int64)
+}
+
+// PositionUpdater records position changes after each trade.
+// Implemented by risk.PositionTracker; nil means disabled.
+type PositionUpdater interface {
+	ApplyTrade(buyerAccountId, sellerAccountId, marketId string, qty int64)
 }
 
 type SettlementEngine struct {
-	store   SettlementStore
-	feeCalc *fee.FeeCalculator
-	bus     SettlementEventPublisher
+	store     SettlementStore
+	feeCalc   *fee.FeeCalculator
+	bus       SettlementEventPublisher
+	insurance InsuranceFundDepositor
+	positions PositionUpdater
 }
 
-func NewSettlementEngine(store SettlementStore, feeCalc *fee.FeeCalculator, bus SettlementEventPublisher) *SettlementEngine {
-	return &SettlementEngine{store: store, feeCalc: feeCalc, bus: bus}
+func NewSettlementEngine(
+	store SettlementStore,
+	feeCalc *fee.FeeCalculator,
+	bus SettlementEventPublisher,
+	insurance InsuranceFundDepositor,
+	positions PositionUpdater,
+) *SettlementEngine {
+	return &SettlementEngine{store: store, feeCalc: feeCalc, bus: bus, insurance: insurance, positions: positions}
 }
 
 // Settle applies each MatchResult to balances and returns the resulting TradeExecutions.
 //
 // Fee model (all fees in quote asset):
-//   - From buyer's reserved quote: takerFee goes to treasury, remainder to seller
-//   - From seller's received quote: makerFee goes to treasury
+//   - From buyer's reserved quote: takerFee split → insurance share + treasury, remainder to seller
+//   - From seller's received quote: makerFee → treasury
 //   - Seller's reserved base goes to buyer in full
-//
-// This keeps buyer's base balance clean and all fees in the quote asset.
 func (e *SettlementEngine) Settle(results []clob.MatchResult, blockHeight int64) ([]TradeExecution, error) {
 	trades := make([]TradeExecution, 0, len(results))
 	for _, r := range results {
@@ -81,8 +101,9 @@ func (e *SettlementEngine) settleTrade(r clob.MatchResult, blockHeight int64) (T
 	}
 
 	// 2. From buyer.Reserved quote:
-	//    - takerFee → treasury
-	//    - remainder (quoteAmount - takerFee) → seller.Available
+	//    - insuranceShare → insurance fund
+	//    - remainder of takerFee → treasury
+	//    - quoteAmount - takerFee → seller.Available
 	if err := e.transferReservedNetFee(buyerAccountId, sellerAccountId, quoteAsset, quoteAmount, takerFee, trade.TradeId, string(fee.FeeTypeTaker), blockHeight); err != nil {
 		return TradeExecution{}, fmt.Errorf("transferring quote: %w", err)
 	}
@@ -93,6 +114,13 @@ func (e *SettlementEngine) settleTrade(r clob.MatchResult, blockHeight int64) (T
 		if err := e.chargeFeeFromAvailable(sellerAccountId, quoteAsset, makerFee, trade.TradeId, string(fee.FeeTypeMaker), blockHeight); err != nil {
 			return TradeExecution{}, fmt.Errorf("charging maker fee: %w", err)
 		}
+	}
+
+	// 4. Update position tracker.
+	if e.positions != nil {
+		e.positions.ApplyTrade(buyerAccountId, sellerAccountId, r.MarketId, r.Quantity)
+		e.bus.PublishPositionUpdated(buyerAccountId, r.MarketId, 0, blockHeight) // net computed by tracker
+		e.bus.PublishPositionUpdated(sellerAccountId, r.MarketId, 0, blockHeight)
 	}
 
 	e.bus.PublishTradeExecuted(trade, blockHeight)
@@ -129,8 +157,9 @@ func (e *SettlementEngine) transferReserved(fromId, toId, assetId string, amount
 }
 
 // transferReservedNetFee splits buyer's reserved:
-//   - feeAmount → treasury (reported as feeType)
-//   - quoteAmount - feeAmount → seller.Available
+//   - insuranceShare of takerFee → insurance fund
+//   - takerFee - insuranceShare → treasury
+//   - quoteAmount - takerFee → seller.Available
 func (e *SettlementEngine) transferReservedNetFee(fromId, toId, assetId string, quoteAmount, feeAmount int64, tradeId, feeType string, blockHeight int64) error {
 	from := e.store.GetBalance(fromId, assetId)
 	if from.Reserved < quoteAmount {
@@ -140,6 +169,13 @@ func (e *SettlementEngine) transferReservedNetFee(fromId, toId, assetId string, 
 
 	netToSeller := quoteAmount - feeAmount
 
+	// Split taker fee between insurance and treasury.
+	var insuranceAmount int64
+	if e.insurance != nil {
+		insuranceAmount = feeAmount * 2000 / 10_000 // 20% of taker fee
+	}
+	treasuryAmount := feeAmount - insuranceAmount
+
 	updatedFrom := &asset.Balance{
 		AccountId: fromId,
 		AssetId:   assetId,
@@ -148,7 +184,7 @@ func (e *SettlementEngine) transferReservedNetFee(fromId, toId, assetId string, 
 	}
 	e.store.SetBalance(updatedFrom)
 
-	// Credit seller
+	// Credit seller.
 	to := e.store.GetBalance(toId, assetId)
 	updatedTo := &asset.Balance{
 		AccountId: toId,
@@ -158,16 +194,25 @@ func (e *SettlementEngine) transferReservedNetFee(fromId, toId, assetId string, 
 	}
 	e.store.SetBalance(updatedTo)
 
-	// Credit treasury with taker fee
-	if feeAmount > 0 {
+	// Credit treasury with remaining taker fee.
+	if treasuryAmount > 0 {
 		treasury := e.store.GetBalance(fee.TreasuryAccountId, assetId)
 		updatedTreasury := &asset.Balance{
 			AccountId: fee.TreasuryAccountId,
 			AssetId:   assetId,
-			Available: treasury.Available + feeAmount,
+			Available: treasury.Available + treasuryAmount,
 			Reserved:  treasury.Reserved,
 		}
 		e.store.SetBalance(updatedTreasury)
+	}
+
+	// Credit insurance fund.
+	if insuranceAmount > 0 {
+		e.insurance.Deposit(assetId, insuranceAmount)
+		e.bus.PublishInsuranceFundDeposit(assetId, insuranceAmount, blockHeight)
+	}
+
+	if feeAmount > 0 {
 		e.bus.PublishFeeCharged(fromId, tradeId, assetId, feeAmount, feeType, blockHeight)
 	}
 

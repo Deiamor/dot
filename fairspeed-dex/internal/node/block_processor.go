@@ -144,41 +144,44 @@ func (p *LocalBlockProcessor) processTx(tx fairbatch.Transaction, blockHeight in
 }
 
 func (p *LocalBlockProcessor) processOrder(o clob.Order, txHash string, blockHeight int64) error {
+	// All validation failures below are "soft" rejections: emit OrderRejected and return nil
+	// so the block continues processing subsequent transactions.
+
 	sess, err := p.AccountKeeper.ValidateSession(o.SessionId, o.MarketId, blockHeight)
 	if err != nil {
 		p.emitOrderRejected(o, err.Error(), blockHeight)
-		return fmt.Errorf("session validation: %w", err)
+		return nil
 	}
 
 	// Verify ed25519 signature: the order must be signed by the session key.
 	if err := account.VerifyOrderSignature(txHash, o.Signature, sess.SessionPublicKey); err != nil {
 		p.emitOrderRejected(o, "invalid signature: "+err.Error(), blockHeight)
-		return fmt.Errorf("signature: %w", err)
+		return nil
 	}
 
 	// Replay protection: AccountSequence must match the current account nonce.
 	acc, ok := p.AppState.GetAccount(o.AccountId)
 	if !ok {
 		p.emitOrderRejected(o, "account not found", blockHeight)
-		return fmt.Errorf("account not found: %s", o.AccountId)
+		return nil
 	}
 	if o.AccountSequence != acc.AccountSequence {
 		msg := fmt.Sprintf("sequence mismatch: expected %d got %d", acc.AccountSequence, o.AccountSequence)
 		p.emitOrderRejected(o, msg, blockHeight)
-		return fmt.Errorf("sequence: %s", msg)
+		return nil
 	}
 	if _, err := p.AccountKeeper.IncrementSequence(o.AccountId); err != nil {
-		return fmt.Errorf("increment sequence: %w", err)
+		return fmt.Errorf("increment sequence: %w", err) // internal error → hard fail
 	}
 
 	if err := p.RiskChecker.CheckOrder(&o, sess, blockHeight); err != nil {
 		p.emitOrderRejected(o, err.Error(), blockHeight)
-		return fmt.Errorf("risk check: %w", err)
+		return nil
 	}
 
 	if err := p.OrderBookKeeper.ReserveForOrder(o); err != nil {
 		p.emitOrderRejected(o, err.Error(), blockHeight)
-		return fmt.Errorf("reserving collateral: %w", err)
+		return nil
 	}
 
 	ob := p.OrderBookKeeper.GetOrCreateOrderBook(o.MarketId)

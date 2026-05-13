@@ -18,6 +18,7 @@ import (
 	"github.com/byunghee1994/fairspeed-dex/internal/clob"
 	"github.com/byunghee1994/fairspeed-dex/internal/fairbatch"
 	"github.com/byunghee1994/fairspeed-dex/internal/node"
+	"github.com/byunghee1994/fairspeed-dex/internal/state"
 )
 
 // bootstrapWithKey creates a single-node with Alice having a real ed25519 session key.
@@ -130,10 +131,19 @@ func TestSignature_WrongKey_OrderRejected(t *testing.T) {
 	// Sign with wrong key.
 	order.Signature = account.SignMessage(wrongPriv, txHash)
 
+	// Soft rejection: block succeeds but emits OrderRejected event.
+	var rejectedId string
+	n.Subscribe(state.EventOrderRejected, func(e state.Event) {
+		p := e.Payload.(state.OrderRejectedPayload)
+		rejectedId = p.OrderId
+	})
+
 	batch := fairbatch.NewBatchBuilder(4).AddSubmitOrder(order).Build()
-	_, err := n.SubmitBatch(batch)
-	if err == nil {
-		t.Error("expected rejection for wrong signature, got nil error")
+	if _, err := n.SubmitBatch(batch); err != nil {
+		t.Fatalf("unexpected block error: %v", err)
+	}
+	if rejectedId == "" {
+		t.Error("expected ORDER_REJECTED event for wrong signature, got none")
 	}
 }
 
@@ -148,10 +158,19 @@ func TestSignature_MissingSignature_Rejected(t *testing.T) {
 		clob.OrderSideBuy, 10_000, 1, clob.TimeInForceGtc, 4)
 	// order.Signature is "" by default.
 
+	// Soft rejection: block succeeds but emits OrderRejected event.
+	var rejectedId string
+	n.Subscribe(state.EventOrderRejected, func(e state.Event) {
+		p := e.Payload.(state.OrderRejectedPayload)
+		rejectedId = p.OrderId
+	})
+
 	batch := fairbatch.NewBatchBuilder(4).AddSubmitOrder(order).Build()
-	_, err := n.SubmitBatch(batch)
-	if err == nil {
-		t.Error("expected rejection for missing signature, got nil error")
+	if _, err := n.SubmitBatch(batch); err != nil {
+		t.Fatalf("unexpected block error: %v", err)
+	}
+	if rejectedId == "" {
+		t.Error("expected ORDER_REJECTED event for missing signature, got none")
 	}
 }
 

@@ -8,11 +8,12 @@ import (
 )
 
 type RiskChecker struct {
-	policy RiskPolicy
+	policy  RiskPolicy
+	tracker *PositionTracker
 }
 
-func NewRiskChecker(policy RiskPolicy) *RiskChecker {
-	return &RiskChecker{policy: policy}
+func NewRiskChecker(policy RiskPolicy, tracker *PositionTracker) *RiskChecker {
+	return &RiskChecker{policy: policy, tracker: tracker}
 }
 
 func (r *RiskChecker) CheckOrder(o *clob.Order, sess *account.TradingSession, blockHeight int64) error {
@@ -33,6 +34,29 @@ func (r *RiskChecker) CheckOrder(o *clob.Order, sess *account.TradingSession, bl
 	}
 	if !sess.CanTradeMarket(o.MarketId) {
 		return fmt.Errorf("session %s not allowed for market %s", sess.SessionId, o.MarketId)
+	}
+	if err := r.checkPositionLimit(o); err != nil {
+		return err
+	}
+	return nil
+}
+
+// checkPositionLimit rejects an order that would push the account's net position
+// beyond MaxPositionSize (absolute value). Skipped when MaxPositionSize == 0.
+func (r *RiskChecker) checkPositionLimit(o *clob.Order) error {
+	if r.policy.MaxPositionSize == 0 {
+		return nil
+	}
+	current := r.tracker.Get(o.AccountId, o.MarketId)
+	var projected int64
+	if o.Side == clob.OrderSideBuy {
+		projected = current.NetQuantity + o.Quantity
+	} else {
+		projected = current.NetQuantity - o.Quantity
+	}
+	if projected > r.policy.MaxPositionSize || projected < -r.policy.MaxPositionSize {
+		return fmt.Errorf("position limit exceeded: account=%s market=%s projected=%d limit=%d",
+			o.AccountId, o.MarketId, projected, r.policy.MaxPositionSize)
 	}
 	return nil
 }

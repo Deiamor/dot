@@ -12,14 +12,21 @@ import (
 )
 
 type LocalNode struct {
-	processor   *LocalBlockProcessor
-	chain       []LocalBlock
-	bus         *state.EventBus
-	AppState    *state.AppState
-	AssetKeeper *asset.AssetKeeper
+	processor      *LocalBlockProcessor
+	chain          []LocalBlock
+	bus            *state.EventBus
+	AppState       *state.AppState
+	AssetKeeper    *asset.AssetKeeper
+	positionTracker *risk.PositionTracker
+	insuranceFund  *risk.InsuranceFund
 }
 
 func NewLocalNode() *LocalNode {
+	return NewLocalNodeWithPolicy(risk.DefaultRiskPolicy)
+}
+
+// NewLocalNodeWithPolicy creates a LocalNode with a custom RiskPolicy.
+func NewLocalNodeWithPolicy(policy risk.RiskPolicy) *LocalNode {
 	appState := state.NewAppState()
 	bus := state.NewEventBus()
 
@@ -30,10 +37,12 @@ func NewLocalNode() *LocalNode {
 	orderBookKeeper := clob.NewOrderBookKeeper(appState, appState, adapter)
 
 	feeCalc := fee.NewFeeCalculator(fee.DefaultFeePolicy)
-	settlementEngine := settlement.NewSettlementEngine(appState, feeCalc, adapter)
+	positionTracker := risk.NewPositionTracker()
+	insuranceFund := risk.NewInsuranceFund()
+	settlementEngine := settlement.NewSettlementEngine(appState, feeCalc, adapter, insuranceFund, positionTracker)
 	settlementKeeper := settlement.NewSettlementKeeper()
 
-	riskChecker := risk.NewRiskChecker(risk.DefaultRiskPolicy)
+	riskChecker := risk.NewRiskChecker(policy, positionTracker)
 	matcher := clob.PricePriorityMatcher{}
 
 	processor := &LocalBlockProcessor{
@@ -49,10 +58,12 @@ func NewLocalNode() *LocalNode {
 	}
 
 	return &LocalNode{
-		processor:   processor,
-		bus:         bus,
-		AppState:    appState,
-		AssetKeeper: assetKeeper,
+		processor:       processor,
+		bus:             bus,
+		AppState:        appState,
+		AssetKeeper:     assetKeeper,
+		positionTracker: positionTracker,
+		insuranceFund:   insuranceFund,
 	}
 }
 
@@ -164,6 +175,16 @@ func (n *LocalNode) GetAccountSequence(accountId string) uint64 {
 		return 0
 	}
 	return acc.AccountSequence
+}
+
+// GetInsuranceFundBalance returns the current insurance fund balance for an asset.
+func (n *LocalNode) GetInsuranceFundBalance(assetId string) int64 {
+	return n.insuranceFund.Balance(assetId)
+}
+
+// GetPosition returns the net position for an account in a market.
+func (n *LocalNode) GetPosition(accountId, marketId string) risk.NetPosition {
+	return n.positionTracker.Get(accountId, marketId)
 }
 
 // SaveSnapshot persists the current state to the given file path.

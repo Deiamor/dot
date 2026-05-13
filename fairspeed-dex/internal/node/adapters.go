@@ -107,3 +107,19 @@ func (a *busAdapter) PublishFeeCharged(accountId, tradeId, assetId string, amoun
 		},
 	})
 }
+
+func (a *busAdapter) PublishInsuranceFundDeposit(assetId string, amount int64, blockHeight int64) {
+	a.bus.Publish(state.Event{
+		Type:        state.EventInsuranceFundDeposit,
+		BlockHeight: blockHeight,
+		Payload:     state.InsuranceFundDepositPayload{AssetId: assetId, Amount: amount},
+	})
+}
+
+func (a *busAdapter) PublishPositionUpdated(accountId, marketId string, netQuantity int64, blockHeight int64) {
+	a.bus.Publish(state.Event{
+		Type:        state.EventPositionUpdated,
+		BlockHeight: blockHeight,
+		Payload:     state.PositionUpdatedPayload{AccountId: accountId, MarketId: marketId, NetQuantity: netQuantity},
+	})
+}
