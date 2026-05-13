@@ -205,3 +205,29 @@ export async function cancelConditionalOrder(orderId: string, accountId: string)
   })
   if (!res.ok) throw new Error(`Failed to cancel conditional order: ${res.status}`)
 }
+
+export interface OrderHistoryItem {
+  order_id: string
+  market_id: string
+  side: string
+  price: number
+  quantity: number
+  remaining_quantity: number
+  filled_quantity: number
+  status: string
+  time_in_force: string
+  created_block_height: number
+  client_order_id?: string
+}
+
+export async function getOrderHistory(accountId: string, limit = 100): Promise<OrderHistoryItem[]> {
+  const res = await fetch(`${BASE}/orders/${encodeURIComponent(accountId)}/history?limit=${limit}`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Failed to fetch order history: ${res.status}`)
+  return res.json()
+}
+
+export async function getOpenOrders(accountId: string): Promise<OrderHistoryItem[]> {
+  const res = await fetch(`${BASE}/orders/${encodeURIComponent(accountId)}/open`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Failed to fetch open orders: ${res.status}`)
+  return res.json()
+}
