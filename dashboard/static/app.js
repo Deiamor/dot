@@ -264,6 +264,16 @@ document.getElementById('btn-refresh-datasets').addEventListener('click', loadDa
 
 // ── Backtest ──────────────────────────────────────────────────────────────────
 let btEquityChart = null;
+let btDrawdownChart = null;
+
+// Compute drawdown series from equity curve: at each point, (peak - current) / peak * 100
+function computeDrawdown(curve) {
+  let peak = curve[0];
+  return curve.map(v => {
+    if (v > peak) peak = v;
+    return peak > 0 ? (peak - v) / peak * 100 : 0;
+  });
+}
 
 document.getElementById('btn-run-bt').addEventListener('click', async () => {
   const datasetPath = document.getElementById('bt-dataset').value;
@@ -318,6 +328,21 @@ function renderBacktestResults(r) {
   document.getElementById('r-fees').textContent   = fmt(r.totalFees, 2) + ' USDT';
   document.getElementById('r-equity').textContent = fmt(r.finalEquity, 2) + ' USDT';
 
+  // New metrics.
+  const sharpeEl = document.getElementById('r-sharpe');
+  sharpeEl.textContent = fmt(r.sharpeRatio, 2);
+  sharpeEl.style.color = r.sharpeRatio >= 1 ? 'var(--green)' : r.sharpeRatio < 0 ? 'var(--red)' : '';
+
+  const maxddEl = document.getElementById('r-maxdd');
+  maxddEl.textContent = fmt(r.maxDrawdown * 100, 2) + '%';
+  maxddEl.style.color = r.maxDrawdown > 0.1 ? 'var(--red)' : '';
+
+  const avgfillEl = document.getElementById('r-avgfill');
+  avgfillEl.textContent = fmt(r.avgFillPnl, 4) + ' USDT';
+  avgfillEl.style.color = r.avgFillPnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+  document.getElementById('r-duration').textContent = r.duration || '—';
+
   // Equity curve from backtest.
   if (btEquityChart) btEquityChart.destroy();
   const ctx = document.getElementById('chart-bt-equity').getContext('2d');
@@ -332,6 +357,29 @@ function renderBacktestResults(r) {
       }]
     },
     options: { ...CHART_OPTS }
+  });
+
+  // Drawdown curve.
+  if (btDrawdownChart) btDrawdownChart.destroy();
+  const ddCtx = document.getElementById('chart-bt-drawdown').getContext('2d');
+  const ddData = computeDrawdown(r.equityCurve);
+  btDrawdownChart = new Chart(ddCtx, {
+    type: 'line',
+    data: {
+      labels: r.equityCurve.map((_, i) => i),
+      datasets: [{
+        label: 'Drawdown %', data: ddData,
+        borderColor: '#ef4444', backgroundColor: '#ef444428',
+        borderWidth: 2, pointRadius: 0, fill: true, tension: 0.2,
+      }]
+    },
+    options: {
+      ...CHART_OPTS,
+      scales: {
+        ...CHART_OPTS.scales,
+        y: { ...CHART_OPTS.scales.y, reverse: false }
+      }
+    }
   });
 }
 
