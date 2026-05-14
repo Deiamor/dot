@@ -224,6 +224,39 @@ m.UpdateSigma(sigma)
 
 ---
 
+## Quickstart (5 minutes)
+
+**Prerequisites:** Go 1.24+ · internet access (for paper/live mode) · no API key needed for paper mode
+
+```bash
+# 1. Clone and build
+git clone https://github.com/deiamor/perp-strategy-engine
+cd perp-strategy-engine
+go build -o mmbot ./cmd/mmbot
+
+# 2. Run paper trading with dashboard
+./mmbot --mode paper --symbol BTCUSDT --dashboard
+# → open http://localhost:8080
+
+# 3. Download kline data from the dashboard (Data tab → Download)
+#    or download via curl:
+#    http://localhost:8080  → "Data" tab → symbol=BTCUSDT, interval=5m, date range → Download
+
+# 4. Run backtest on downloaded data
+./mmbot --mode backtest \
+  --dataset ./data/BTCUSDT_5m_20240101_20240201.json \
+  --dashboard
+# → open http://localhost:8080 → Backtest tab → select dataset → Run Backtest
+
+# 5. (Optional) Grid search for best parameters
+#    Dashboard → Optimize tab → configure grid → Run
+```
+
+> **Live trading** requires `BINANCE_API_KEY` + `BINANCE_SECRET_KEY` (see below).
+> The dashboard has a Settings panel to enter keys without environment variables.
+
+---
+
 ## Running the MM bot
 
 ### Paper trading (no keys needed — good for testing)
