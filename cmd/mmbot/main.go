@@ -34,6 +34,7 @@ import (
 	"github.com/deiamor/perp-strategy-engine/fsm/exchange/paper"
 	mmengine "github.com/deiamor/perp-strategy-engine/mm/engine"
 	"github.com/deiamor/perp-strategy-engine/mm/model"
+	"github.com/deiamor/perp-strategy-engine/notify"
 )
 
 func main() {
@@ -46,6 +47,11 @@ func main() {
 	testnet      := flag.Bool("testnet", false, "use Binance Futures testnet")
 	initBalance  := flag.Float64("initial-balance", 10_000, "initial USDT balance (paper/backtest)")
 	slippageBps  := flag.Float64("slippage-bps", 1.0, "fill slippage in bps (paper mode)")
+
+	telegramToken  := flag.String("telegram-token", "", "Telegram bot token (optional)")
+	telegramChatID := flag.String("telegram-chat-id", "", "Telegram chat ID (optional)")
+	webhookURL     := flag.String("webhook-url", "", "Webhook URL for alerts (optional)")
+	notifyFills    := flag.Bool("notify-fills", true, "Alert on every fill")
 
 	gamma        := flag.Float64("gamma", 0.1, "risk aversion coefficient")
 	kappa        := flag.Float64("kappa", 1.5, "order arrival intensity (fills/sec)")
@@ -65,9 +71,19 @@ func main() {
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
+	// ── Build notifier ─────────────────────────────────────────────────────────
+	var notif notify.Notifier = notify.Noop{}
+	if *telegramToken != "" {
+		notif = notify.NewTelegram(*telegramToken, *telegramChatID)
+	}
+	if *webhookURL != "" {
+		notif = notify.NewMulti(notif, notify.NewWebhook(*webhookURL))
+	}
+
 	// ── Build exchange ─────────────────────────────────────────────────────────
 	var (
 		ex        exchange.Exchange
+		emitter   exchange.EventEmitter
 		collector = dashboard.NewCollector()
 	)
 
@@ -87,6 +103,7 @@ func main() {
 			MakerFeeBps:    2,
 		}, realEx)
 		go collector.Ingest(pex.Events())
+		emitter = pex
 		ex = pex
 		log.Info("mode: PAPER", "symbol", *symbol, "balance", *initBalance)
 
@@ -106,6 +123,7 @@ func main() {
 			MakerFeeBps:    2,
 		}, snaps)
 		go collector.Ingest(bex.Events())
+		emitter = bex
 		ex = bex
 		log.Info("mode: BACKTEST", "dataset", *dataset, "snapshots", len(snaps))
 
@@ -165,6 +183,16 @@ func main() {
 		time.Sleep(*interval + time.Second)
 		cancel()
 	}()
+
+	// ── Start watcher (paper/live modes only) ──────────────────────────────────
+	if *mode != "backtest" && emitter != nil {
+		w := notify.NewWatcher(notif, *symbol)
+		if !*notifyFills {
+			// Set a large threshold to suppress fill alerts.
+			w.FillAlertMinPnL = 1e18
+		}
+		go w.Watch(ctx, emitter.Events())
+	}
 
 	// ── Dashboard ──────────────────────────────────────────────────────────────
 	if *dashEnabled {
