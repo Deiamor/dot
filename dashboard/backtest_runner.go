@@ -204,8 +204,8 @@ func RunBacktest(cfg BacktestConfig, symbol string) (*BacktestResult, error) {
 	defer cancel()
 	eng.Run(ctx) //nolint — stops when ErrTerminal
 
-	// Close events channel so the drain goroutine exits.
-	// The backtest exchange's events channel is unbuffered-drained: just wait.
+	// Engine stopped: no more emits. Close the channel so the drain goroutine exits.
+	ex.Close()
 	<-done
 
 	stats := ex.Stats()
