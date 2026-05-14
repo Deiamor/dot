@@ -32,6 +32,7 @@ import (
 	"github.com/deiamor/perp-strategy-engine/fsm/exchange/backtest"
 	"github.com/deiamor/perp-strategy-engine/fsm/exchange/binance"
 	"github.com/deiamor/perp-strategy-engine/fsm/exchange/paper"
+	"github.com/deiamor/perp-strategy-engine/fsm/risk"
 	mmengine "github.com/deiamor/perp-strategy-engine/mm/engine"
 	"github.com/deiamor/perp-strategy-engine/mm/model"
 	"github.com/deiamor/perp-strategy-engine/notify"
@@ -52,6 +53,11 @@ func main() {
 	telegramChatID := flag.String("telegram-chat-id", "", "Telegram chat ID (optional)")
 	webhookURL     := flag.String("webhook-url", "", "Webhook URL for alerts (optional)")
 	notifyFills    := flag.Bool("notify-fills", true, "Alert on every fill")
+
+	maxPosition  := flag.Float64("max-position", 0.0, "risk: max absolute position in base units (0=off)")
+	maxDailyLoss := flag.Float64("max-daily-loss", 0.0, "risk: max daily loss in USDT (0=off)")
+	maxDrawdown  := flag.Float64("max-drawdown-pct", 0.0, "risk: max drawdown % from equity peak (0=off)")
+	minEquity    := flag.Float64("min-equity", 0.0, "risk: minimum equity in USDT, triggers kill (0=off)")
 
 	gamma        := flag.Float64("gamma", 0.1, "risk aversion coefficient")
 	kappa        := flag.Float64("kappa", 1.5, "order arrival intensity (fills/sec)")
@@ -132,8 +138,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	// ── Build strategy + engine ────────────────────────────────────────────────
+	// ── Wrap exchange with risk manager ───────────────────────────────────────
 	kill := make(chan struct{})
+	if *maxPosition > 0 || *maxDailyLoss > 0 || *maxDrawdown > 0 || *minEquity > 0 {
+		ex = risk.New(risk.Config{
+			MaxPositionQty:   *maxPosition,
+			MaxDailyLossUSDT: *maxDailyLoss,
+			MaxDrawdownPct:   *maxDrawdown,
+			MinEquityUSDT:    *minEquity,
+		}, ex, kill)
+		log.Info("risk manager enabled",
+			"maxPosition", *maxPosition,
+			"maxDailyLoss", *maxDailyLoss,
+			"maxDrawdownPct", *maxDrawdown,
+			"minEquity", *minEquity,
+		)
+	}
+
+	// ── Build strategy + engine ────────────────────────────────────────────────
 	cfg := mmengine.Config{
 		Model: model.Params{
 			Gamma:        *gamma,

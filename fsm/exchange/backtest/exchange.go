@@ -69,6 +69,10 @@ func New(cfg Config, snapshots []exchange.MarketSnapshot) *Exchange {
 // Implements exchange.EventEmitter.
 func (e *Exchange) Events() <-chan exchange.TradingEvent { return e.events }
 
+// Close closes the events channel. Call once after the engine has stopped to
+// unblock any goroutine draining Events().
+func (e *Exchange) Close() { close(e.events) }
+
 // Progress returns (cursor, total) snapshot counts.
 func (e *Exchange) Progress() (int, int) {
 	e.mu.Lock()
