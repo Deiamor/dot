@@ -38,6 +38,7 @@ type Client struct {
 	secretKey string
 	http      *http.Client
 	wsFeed    *WSFeed
+	useWS     bool
 }
 
 // Option configures a Client.
@@ -49,6 +50,12 @@ func WithTestnet() Option {
 		c.base = testnetBase
 		c.wsHost = testnetWSHost
 	}
+}
+
+// WithWebSocket enables the WebSocket feed for faster market data.
+// Call StartWSFeed(ctx, symbols...) after creating the client to begin streaming.
+func WithWebSocket() Option {
+	return func(c *Client) { c.useWS = true }
 }
 
 // WithKey sets the API key and secret for signed requests.
