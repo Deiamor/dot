@@ -49,6 +49,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/datasets", s.handleDatasets)
 	mux.HandleFunc("/api/download", s.handleDownload)
 	mux.HandleFunc("/api/backtest", s.handleBacktest)
+	mux.HandleFunc("/api/optimize", s.handleOptimize)
 
 	// SSE stream.
 	mux.HandleFunc("/api/events", s.handleSSE)

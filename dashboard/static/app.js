@@ -65,6 +65,7 @@ document.querySelectorAll('nav button').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'backtest') loadDatasets();
+    if (btn.dataset.tab === 'optimize') loadDatasetsForOptimize();
     if (btn.dataset.tab === 'data') loadDatasets();
   });
 });
@@ -381,6 +382,152 @@ function renderBacktestResults(r) {
       }
     }
   });
+}
+
+// ── Optimize ──────────────────────────────────────────────────────────────────
+let optResults = [];
+let optSortCol = 'sharpe';
+let optSortAsc = false;
+
+async function loadDatasetsForOptimize() {
+  const res = await fetch('/api/datasets');
+  const ds = await res.json() || [];
+  const sel = document.getElementById('opt-dataset');
+  sel.innerHTML = '<option value="">— select dataset —</option>' +
+    ds.map(d => `<option value="${d.path}">${d.symbol} ${d.interval} (${d.candles.toLocaleString()} candles)</option>`).join('');
+  sel.onchange = () => {
+    document.getElementById('btn-run-opt').disabled = !sel.value;
+  };
+}
+
+// Parse comma-separated string into array of floats, ignoring empty/NaN.
+function parseFloatList(str) {
+  return str.split(',').map(s => parseFloat(s.trim())).filter(v => !isNaN(v));
+}
+
+document.getElementById('btn-run-opt').addEventListener('click', async () => {
+  const datasetPath = document.getElementById('opt-dataset').value;
+  if (!datasetPath) return;
+
+  const grid = {
+    gamma:     parseFloatList(document.getElementById('opt-gamma').value),
+    kappa:     parseFloatList(document.getElementById('opt-kappa').value),
+    sigma:     parseFloatList(document.getElementById('opt-sigma').value),
+    alpha:     parseFloatList(document.getElementById('opt-alpha').value),
+    orderSize: parseFloatList(document.getElementById('opt-ordersize').value),
+  };
+
+  const req = {
+    datasetPath,
+    initialBalance: +document.getElementById('opt-balance').value,
+    maxResults:     +document.getElementById('opt-maxresults').value,
+    grid,
+  };
+
+  const btn = document.getElementById('btn-run-opt');
+  const status = document.getElementById('opt-status');
+  btn.disabled = true;
+  status.textContent = 'Running grid search… this may take a while.';
+
+  try {
+    const res = await fetch('/api/optimize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    optResults = await res.json();
+    optSortCol = 'sharpe';
+    optSortAsc = false;
+    renderOptResults();
+    status.textContent = `Done. ${optResults.length} results.`;
+  } catch (e) {
+    status.textContent = '✗ ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// Client-side sort on column header click.
+document.getElementById('opt-table').querySelector('thead').addEventListener('click', e => {
+  const th = e.target.closest('th[data-col]');
+  if (!th) return;
+  const col = th.dataset.col;
+  if (optSortCol === col) {
+    optSortAsc = !optSortAsc;
+  } else {
+    optSortCol = col;
+    optSortAsc = col === 'rank'; // rank ascending by default, others descending
+  }
+  renderOptResults();
+});
+
+function optValue(r, col) {
+  switch (col) {
+    case 'rank':        return 0; // rank is positional; handled separately
+    case 'gamma':       return r.params ? r.params.Gamma : 0;
+    case 'kappa':       return r.params ? r.params.Kappa : 0;
+    case 'sigma':       return r.params ? r.params.Sigma : 0;
+    case 'alpha':       return r.params ? r.params.Alpha : 0;
+    case 'orderSize':   return r.orderSize;
+    case 'sharpe':      return r.sharpe;
+    case 'netPnl':      return r.netPnl;
+    case 'returnPct':   return r.returnPct;
+    case 'maxDrawdown': return r.maxDrawdown;
+    case 'winRate':     return r.winRate;
+    case 'numFills':    return r.numFills;
+    default:            return 0;
+  }
+}
+
+function renderOptResults() {
+  document.getElementById('opt-results').style.display = 'block';
+
+  // Sort a copy (preserve original rank from server).
+  const sorted = optResults.slice().sort((a, b) => {
+    if (optSortCol === 'rank') {
+      // Restore original order (server returns sorted by Sharpe desc = rank 1 best)
+      const ia = optResults.indexOf(a);
+      const ib = optResults.indexOf(b);
+      return optSortAsc ? ia - ib : ib - ia;
+    }
+    const va = optValue(a, optSortCol);
+    const vb = optValue(b, optSortCol);
+    return optSortAsc ? va - vb : vb - va;
+  });
+
+  // Update header arrows.
+  document.querySelectorAll('#opt-table th[data-col]').forEach(th => {
+    const col = th.dataset.col;
+    const base = th.textContent.replace(/[▲▼▴▾]/g, '').trim();
+    if (col === optSortCol) {
+      th.textContent = base + ' ' + (optSortAsc ? '▲' : '▼');
+    } else {
+      th.textContent = base;
+    }
+  });
+
+  const tbody = document.getElementById('opt-tbody');
+  tbody.innerHTML = sorted.map((r, idx) => {
+    const rank = optResults.indexOf(r) + 1;
+    const p = r.params || {};
+    const sharpeClass = r.sharpe >= 1 ? 'pnl-pos' : r.sharpe < 0 ? 'pnl-neg' : '';
+    const pnlClass = r.netPnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+    return `<tr>
+      <td>${rank}</td>
+      <td>${fmt(p.Gamma, 3)}</td>
+      <td>${fmt(p.Kappa, 2)}</td>
+      <td>${fmt(p.Sigma, 2)}</td>
+      <td>${fmt(p.Alpha, 2)}</td>
+      <td>${fmt(r.orderSize, 4)}</td>
+      <td class="${sharpeClass}">${fmt(r.sharpe, 3)}</td>
+      <td class="${pnlClass}">${fmt(r.netPnl, 2)}</td>
+      <td class="${pnlClass}">${fmt(r.returnPct, 2)}%</td>
+      <td>${fmt(r.maxDrawdown * 100, 2)}%</td>
+      <td>${fmt(r.winRate * 100, 1)}%</td>
+      <td>${r.numFills.toLocaleString()}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────

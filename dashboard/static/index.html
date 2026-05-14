@@ -17,6 +17,7 @@
   <nav>
     <button class="active" data-tab="live">Live / Paper</button>
     <button data-tab="backtest">Backtest</button>
+    <button data-tab="optimize">Optimize</button>
     <button data-tab="data">Data</button>
   </nav>
 
@@ -186,6 +187,78 @@
         <div class="chart-card">
           <h3>Drawdown</h3>
           <canvas id="chart-bt-drawdown" height="100"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── OPTIMIZE TAB ───────────────────────────────────────── -->
+    <div id="tab-optimize" class="tab-panel">
+      <div class="form-card">
+        <h3>Grid Search Configuration</h3>
+        <div class="form-grid">
+          <div class="field">
+            <label>Dataset</label>
+            <select id="opt-dataset"><option value="">— select dataset —</option></select>
+          </div>
+          <div class="field">
+            <label>Initial Balance (USDT)</label>
+            <input id="opt-balance" type="number" value="10000" min="1">
+          </div>
+          <div class="field">
+            <label>Gamma values (comma-separated)</label>
+            <input id="opt-gamma" type="text" value="0.05,0.1,0.2" placeholder="e.g. 0.05,0.1,0.2">
+          </div>
+          <div class="field">
+            <label>Kappa values (comma-separated)</label>
+            <input id="opt-kappa" type="text" value="1.0,1.5,2.0" placeholder="e.g. 1.0,1.5,2.0">
+          </div>
+          <div class="field">
+            <label>Sigma values (comma-separated)</label>
+            <input id="opt-sigma" type="text" value="0.5,0.8,1.2" placeholder="e.g. 0.5,0.8,1.2">
+          </div>
+          <div class="field">
+            <label>Alpha values (comma-separated)</label>
+            <input id="opt-alpha" type="text" value="0.5,1.0" placeholder="e.g. 0.5,1.0">
+          </div>
+          <div class="field">
+            <label>OrderSize values (comma-separated)</label>
+            <input id="opt-ordersize" type="text" value="0.001" placeholder="e.g. 0.001,0.002">
+          </div>
+          <div class="field">
+            <label>Max Results (top N)</label>
+            <input id="opt-maxresults" type="number" value="20" min="1" max="200">
+          </div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px;align-items:center">
+          <button id="btn-run-opt" class="btn btn-primary" disabled>&#9654; Run Optimize</button>
+          <span id="opt-status" style="color:var(--text2);font-size:13px"></span>
+        </div>
+      </div>
+
+      <div id="opt-results" style="display:none">
+        <div class="form-card">
+          <h3>Optimization Results</h3>
+          <div style="overflow-x:auto">
+            <table id="opt-table">
+              <thead>
+                <tr>
+                  <th data-col="rank" style="cursor:pointer">Rank</th>
+                  <th data-col="gamma" style="cursor:pointer">Gamma</th>
+                  <th data-col="kappa" style="cursor:pointer">Kappa</th>
+                  <th data-col="sigma" style="cursor:pointer">Sigma</th>
+                  <th data-col="alpha" style="cursor:pointer">Alpha</th>
+                  <th data-col="orderSize" style="cursor:pointer">OrderSize</th>
+                  <th data-col="sharpe" style="cursor:pointer">Sharpe &#9660;</th>
+                  <th data-col="netPnl" style="cursor:pointer">Net PnL</th>
+                  <th data-col="returnPct" style="cursor:pointer">Return %</th>
+                  <th data-col="maxDrawdown" style="cursor:pointer">Max DD</th>
+                  <th data-col="winRate" style="cursor:pointer">Win Rate</th>
+                  <th data-col="numFills" style="cursor:pointer">Fills</th>
+                </tr>
+              </thead>
+              <tbody id="opt-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
