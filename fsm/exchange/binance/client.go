@@ -33,9 +33,11 @@ const (
 // Create one with New; it is safe for concurrent use.
 type Client struct {
 	base      string
+	wsHost    string
 	apiKey    string
 	secretKey string
 	http      *http.Client
+	wsFeed    *WSFeed
 }
 
 // Option configures a Client.
@@ -43,7 +45,10 @@ type Option func(*Client)
 
 // WithTestnet routes requests to the Binance Futures testnet.
 func WithTestnet() Option {
-	return func(c *Client) { c.base = testnetBase }
+	return func(c *Client) {
+		c.base = testnetBase
+		c.wsHost = testnetWSHost
+	}
 }
 
 // WithKey sets the API key and secret for signed requests.
@@ -57,13 +62,22 @@ func WithKey(apiKey, secretKey string) Option {
 // New creates a Binance futures client.
 func New(opts ...Option) *Client {
 	c := &Client{
-		base: mainnetBase,
-		http: &http.Client{Timeout: 10 * time.Second},
+		base:   mainnetBase,
+		wsHost: mainnetWSHost,
+		http:   &http.Client{Timeout: 10 * time.Second},
 	}
 	for _, o := range opts {
 		o(c)
 	}
 	return c
+}
+
+// StartWSFeed connects a WebSocket feed for the given symbols.
+// When active, MarketSnapshot() returns cached WS data instead of REST.
+// Call once after creating the client; ctx cancellation stops the feed.
+func (c *Client) StartWSFeed(ctx context.Context, symbols ...string) *WSFeed {
+	c.wsFeed = NewWSFeed(ctx, c.wsHost, symbols)
+	return c.wsFeed
 }
 
 // NewWithBaseURL creates a client with a custom base URL.
@@ -77,6 +91,12 @@ func NewWithBaseURL(base string, opts ...Option) *Client {
 // ─── Market data ──────────────────────────────────────────────────────────────
 
 func (c *Client) MarketSnapshot(ctx context.Context, symbol string) (exchange.MarketSnapshot, error) {
+	// Use WebSocket cache when available — avoids REST round-trip.
+	if c.wsFeed != nil {
+		if snap, ok := c.wsFeed.Snapshot(symbol); ok {
+			return snap, nil
+		}
+	}
 	// Best bid/ask from bookTicker.
 	type bookTicker struct {
 		Symbol   string `json:"symbol"`
